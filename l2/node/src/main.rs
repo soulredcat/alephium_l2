@@ -39,14 +39,11 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     // Reserve the port first; do not spawn an unowned worker on bind failure.
     let listener = tokio::net::TcpListener::bind(config.listen).await?;
     let (node, worker) = service::start(&config)?;
+    // Owned-process clients consume this one-line acknowledgement and close
+    // the startup pipe. CPU diagnostics stay available through /health.
     println!(
         "Development-only EVM node on {}; chain {}; settlement unimplemented",
         config.listen, config.genesis.chain_id
-    );
-    println!(
-        "Detected {} logical CPUs; {} transaction verification workers",
-        node.available_cpus(),
-        node.verification_workers()
     );
     let stop = node.clone();
     let router = match rpc::router_with_limits(node, config.rpc) {
