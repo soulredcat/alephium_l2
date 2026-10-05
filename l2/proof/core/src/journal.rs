@@ -1,4 +1,7 @@
-use crate::{canonical, protocol::{Head, Receipt}, TransitionContext};
+use crate::{
+    TransitionContext, canonical,
+    protocol::{Head, Receipt},
+};
 use alloy_primitives::{Address, B256, U256};
 use serde::{Deserialize, Serialize};
 

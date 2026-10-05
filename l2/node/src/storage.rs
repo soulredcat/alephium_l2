@@ -28,6 +28,7 @@ pub struct Store {
     database: Database,
     items: Keyspace,
     chain_id: u64,
+    block_index_complete: bool,
     terminal: Arc<AtomicBool>,
     #[cfg(test)]
     fail_next: bool,
@@ -71,6 +72,7 @@ impl Store {
             database,
             items,
             chain_id: genesis.chain_id,
+            block_index_complete: false,
             terminal: Arc::new(AtomicBool::new(false)),
             #[cfg(test)]
             fail_next: false,
@@ -90,7 +92,7 @@ impl Store {
                 store.initialize(genesis, &identity)?;
             }
         }
-        recovery::validate(&store.view()?, genesis, &identity)?;
+        store.block_index_complete = recovery::validate(&store.view()?, genesis, &identity)?;
         Ok(store)
     }
 
@@ -137,6 +139,7 @@ impl Store {
             items: self.items.clone(),
             head,
             chain_id: self.chain_id,
+            block_index_complete: self.block_index_complete,
             terminal: self.terminal.clone(),
         })
     }

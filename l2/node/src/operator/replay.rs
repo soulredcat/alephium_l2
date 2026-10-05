@@ -45,6 +45,9 @@ fn replay_with_checkpoint(
     checkpoint_height: Option<u64>,
 ) -> Result<(ReplayReport, Option<ExecutionCheckpoint>), String> {
     genesis.validate()?;
+    // Reject another execution profile before creating any working directories
+    // or opening Fjall. The immutable backup remains owned by its old runtime.
+    files::owned_directory(&backup.join("data"))?;
     let work_dir = files::fresh_directory(work_dir, backup)?;
     let source_path = work_dir.join("source");
     let manifest = materialize_backup(backup, &source_path)?;

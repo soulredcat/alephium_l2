@@ -225,9 +225,9 @@ impl ArtifactDirectory {
             } else {
                 "requested-Unix-modes-not-enforced; inherited-ACL/filesystem-access-unqualified; Windows-mounts-depend-on-Windows-ACLs"
             };
-            return Ok(format!(
+            Ok(format!(
                 "observed-directory={directory_mode:04o}/payload-file-modes={modes}; {policy}; release-privacy-unqualified"
-            ));
+            ))
         }
         #[cfg(not(unix))]
         {

@@ -7,6 +7,8 @@ use std::collections::BTreeMap;
 pub(super) struct Changes {
     accounts: BTreeMap<Address, AccountChange>,
     slots: BTreeMap<Address, BTreeMap<U256, U256>>,
+    /// Whether each touched address existed in the committed view at block start.
+    existed: BTreeMap<Address, bool>,
 }
 
 impl Changes {
@@ -17,6 +19,10 @@ impl Changes {
             if !account.is_touched() {
                 continue;
             }
+            // The first touch in this block observes the committed view.
+            self.existed
+                .entry(*address)
+                .or_insert_with(|| !account.is_loaded_as_not_existing());
             let deleted = account.is_selfdestructed() || account.is_empty();
             let reset = deleted || account.is_created();
             let previous = self.accounts.get(address);
@@ -71,9 +77,14 @@ impl Changes {
         }
     }
 
+    /// An address that is absent before and after the block has no change.
+    /// Persisting its EIP-161 removal would only add a tombstone record, which
+    /// any zero-value call to a fresh address (or a precompile) could create.
     pub fn finish(mut self) -> Vec<AccountChange> {
+        let existed = self.existed;
         self.accounts
             .into_values()
+            .filter(|account| !account.deleted || existed.get(&account.address) == Some(&true))
             .map(|mut account| {
                 account.slots = self
                     .slots

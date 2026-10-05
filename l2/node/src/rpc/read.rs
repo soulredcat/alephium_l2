@@ -38,10 +38,6 @@ pub(super) fn dispatch(view: Arc<ReadView>, input: &Value) -> Result<Value, RpcE
             parameters(input, 0, 0)?;
             Ok(json!(view.chain_id().to_string()))
         }
-        "eth_gasPrice" | "eth_maxPriorityFeePerGas" => {
-            parameters(input, 0, 0)?;
-            Ok(json!("0x1"))
-        }
         "eth_getBalance"
         | "eth_getTransactionCount"
         | "l2_getBalance"
@@ -124,6 +120,29 @@ pub(super) fn dispatch(view: Arc<ReadView>, input: &Value) -> Result<Value, RpcE
                 hex::encode(value.to_be_bytes::<32>())
             )))
         }
+        "web3_clientVersion" => {
+            parameters(input, 0, 0)?;
+            Ok(json!(concat!(
+                "alephium-l2-node/v",
+                env!("CARGO_PKG_VERSION"),
+                "/development"
+            )))
+        }
+        "eth_syncing" => {
+            // The sole sequencer's committed head is always current.
+            parameters(input, 0, 0)?;
+            Ok(json!(false))
+        }
+        "eth_accounts" => {
+            // The node holds no signing keys.
+            parameters(input, 0, 0)?;
+            Ok(json!([]))
+        }
+        "net_listening" => {
+            parameters(input, 0, 0)?;
+            Ok(json!(true))
+        }
+        "eth_feeHistory" => super::fee_history::query(view, input),
         "eth_call" => super::call::query(view, input),
         "eth_estimateGas" => super::estimate::query(view, input),
         "eth_getTransactionByHash" => super::transaction::query(view, input),
