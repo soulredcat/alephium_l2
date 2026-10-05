@@ -1,6 +1,6 @@
 # Continuation handoff: P4-P8
 
-Updated 5 October 2026. **MAINNET RUNNING is incomplete; mainnet implementation and proving remain paused.** The operator authorized sequential PR review, necessary fixes and scoped tests for #2-#11. This does not authorize deployment, spending or resuming the interrupted proof. WSL and the original development instances remain untouched by this review.
+Updated 5 October 2026. **MAINNET RUNNING is incomplete; mainnet implementation and proving remain paused.** The operator authorized sequential PR review, necessary fixes and scoped tests for #2-#13. This does not authorize deployment, spending or resuming the interrupted proof. WSL and the original development instances remain untouched by this review.
 
 Read [README](../README.md) and [portable status/pins](../handoff/status.json). Extend the existing implementation without repeating P1-P3 or replacing the runtime/proof system. Every P4-P8 item remains unchecked.
 
