@@ -27,9 +27,15 @@ pub struct NodeHandle {
     view: Arc<RwLock<Arc<ReadView>>>,
     failure: Arc<RwLock<Option<String>>>,
     pending: Arc<AtomicUsize>,
+    min_gas_price: u128,
 }
 
 impl NodeHandle {
+    /// Admission floor for the effective gas price, in wei.
+    pub fn min_gas_price(&self) -> u128 {
+        self.min_gas_price
+    }
+
     pub fn view(&self) -> Result<Arc<ReadView>, String> {
         self.view
             .read()
@@ -133,6 +139,9 @@ impl Core {
                     self.fail();
                 }
             })?;
+        if info.gas_price < self.handle.min_gas_price {
+            return Err("Gas price is below the node minimum".into());
+        }
         if info.gas_limit > BLOCK_GAS || info.gas_limit == 0 {
             return Err("Transaction cannot fit block gas budget".into());
         }
@@ -229,6 +238,7 @@ pub fn start(config: &Config) -> Result<(NodeHandle, thread::JoinHandle<()>), St
         view: Arc::new(RwLock::new(Arc::new(view.clone()))),
         failure: Arc::new(RwLock::new(None)),
         pending: Arc::new(AtomicUsize::new(pending.len())),
+        min_gas_price: config.min_gas_price,
     };
     let mut core = Core {
         store,
@@ -275,4 +285,56 @@ pub fn transaction_hash(value: &str) -> Result<B256, String> {
     value
         .parse()
         .map_err(|_| "Invalid transaction identity".into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::start;
+    use crate::{config::Config, development};
+    use alloy_primitives::{Address, U256};
+
+    fn type2(max_fee: u128, priority: u128) -> Vec<u8> {
+        let to = Some(Address::repeat_byte(0x42));
+        development::sign_type2(
+            0,
+            to,
+            U256::from(1),
+            vec![],
+            21_000,
+            max_fee,
+            priority,
+            Default::default(),
+        )
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn admission_enforces_the_minimum_effective_gas_price() {
+        let directory = tempfile::tempdir().unwrap();
+        let config = Config {
+            listen: "127.0.0.1:0".parse().unwrap(),
+            data_dir: directory.path().join("data"),
+            genesis: development::genesis(),
+            min_gas_price: 2,
+        };
+        let (node, worker) = start(&config).unwrap();
+        let legacy = development::sign(
+            0,
+            Some(Address::repeat_byte(0x42)),
+            U256::from(1),
+            vec![],
+            21_000,
+        )
+        .unwrap();
+        // Legacy fixture pays 1 wei; type 2 pays its priority fee at a zero base fee.
+        for below in [legacy, type2(10, 1), type2(1, 1)] {
+            let error = node.submit(below).await.unwrap_err();
+            assert_eq!(error, "Gas price is below the node minimum");
+        }
+        let accepted = node.submit(type2(10, 2)).await.unwrap();
+        assert_eq!(accepted.status, "durably_accepted");
+        node.stop().await;
+        worker.join().unwrap();
+        assert!(node.failure().is_none());
+    }
 }
