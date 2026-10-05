@@ -157,6 +157,8 @@ pub struct CallResult {
     pub success: bool,
     pub output: Vec<u8>,
     pub gas_used: u64,
+    /// Gas consumed before refunds; a successful limit is at least this value.
+    pub gas_spent: u64,
     pub halted: bool,
 }
 
