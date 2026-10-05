@@ -1,0 +1,156 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2020 Consensys Software Inc. (Gnark Crypto reference).
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//     https://www.apache.org/licenses/LICENSE-2.0
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// Fixed exponent chains translated from Gnark Crypto revision
+// 703a260c2f991d01e245adf53d20f76af4210c5f:
+// ecc/bn254/internal/fptower/e12_pairing.go Expt and nSquare;
+// ecc/bn254/pairing.go FinalExponentiation, single precombined input.
+// https://github.com/Consensys/gnark-crypto/blob/703a260c2f991d01e245adf53d20f76af4210c5f/ecc/bn254/internal/fptower/e12_pairing.go
+// https://github.com/Consensys/gnark-crypto/blob/703a260c2f991d01e245adf53d20f76af4210c5f/ecc/bn254/pairing.go
+// The canonical twelve-cell tower layout is inherited from Bn254Fp12.
+// Value arguments preserve aliases: every product uses the old temporaries.
+// Shared immutable modulus; no external arithmetic authority or pairing validation.
+
+Abstract Contract Bn254Exponent(fpModulus: U256) extends Bn254Frobenius(fpModulus),
+    Bn254Cyclotomic(fpModulus) {
+    const FP12_ZERO_FINAL_EXPONENTIATION = 1041
+
+    // Internal nSquare from e12_pairing.go, reached only by the fixed chain.
+    // PRECONDITION: nonzero cyclotomic a; all callers use fixed counts <= 10.
+    // The source Expt calls nSquare, not nSquareCompressed/Karabina square.
+    fn fp12CyclotomicSquareN(a: [U256; 12], n: U256) -> [U256; 12] {
+        let mut result = a
+        for (let mut i = 0; i < n; i = i + 1) {
+            result = fp12CyclotomicSquare(result)
+        }
+        return result
+    }
+
+    // Expt raises a to the positive BN254 generator x0=4965661367192848881.
+    // PRECONDITION: the target has established that a is nonzero cyclotomic,
+    // of order dividing p^4-p^2+1. Canonical validation alone does not prove it.
+    // The final-exponentiation easy part below establishes this precondition.
+    // Exact upstream addchain v0.4.0 schedule: 62 squares, 17 multiplications.
+    // Hex comments track the exponent of a, not field values or scalar limbs.
+    fn fp12Expt(a: [U256; 12]) -> [U256; 12] {
+        // Steps 1..4: a^2, a^4, a^8, a^0x10.
+        let mut t3 = fp12CyclotomicSquare(a)
+        let mut t5 = fp12CyclotomicSquare(t3)
+        let result = fp12CyclotomicSquare(t5)
+        let mut t0 = fp12CyclotomicSquare(result)
+
+        // Steps 5..8: a^0x11, a^0x13, a^0x14, a^0x19.
+        let mut t2 = fp12Mul(a, t0)
+        t0 = fp12Mul(t3, t2)
+        let mut t1 = fp12Mul(a, t0)
+        let mut t4 = fp12Mul(result, t2)
+
+        // Steps 9..11: a^0x22, a^0x27, a^0x29.
+        let mut t6 = fp12CyclotomicSquare(t2)
+        t1 = fp12Mul(t0, t1)
+        t0 = fp12Mul(t3, t1)
+
+        // Steps 12..19: a^0x880 -> a^0x884 -> a^0x89d.
+        t6 = fp12CyclotomicSquareN(t6, 6)
+        t5 = fp12Mul(t5, t6)
+        t5 = fp12Mul(t4, t5)
+
+        // Steps 20..27: a^0x44e80 -> a^0x44e99.
+        t5 = fp12CyclotomicSquareN(t5, 7)
+        t4 = fp12Mul(t4, t5)
+
+        // Steps 28..37: a^0x44e9900 -> a^0x44e9929 -> a^0x44e992b.
+        t4 = fp12CyclotomicSquareN(t4, 8)
+        t4 = fp12Mul(t0, t4)
+        t3 = fp12Mul(t3, t4)
+
+        // Steps 38..44: a^0x113a64ac0 -> a^0x113a64ad1.
+        t3 = fp12CyclotomicSquareN(t3, 6)
+        t2 = fp12Mul(t2, t3)
+
+        // Steps 45..53: a^0x113a64ad100 -> a^0x113a64ad129.
+        t2 = fp12CyclotomicSquareN(t2, 8)
+        t2 = fp12Mul(t0, t2)
+
+        // Steps 54..60: a^0x44e992b44a40 -> a^0x44e992b44a69.
+        t2 = fp12CyclotomicSquareN(t2, 6)
+        t2 = fp12Mul(t0, t2)
+
+        // Steps 61..71: a^0x113a64ad129a400 -> a^0x113a64ad129a427.
+        t2 = fp12CyclotomicSquareN(t2, 10)
+        t1 = fp12Mul(t1, t2)
+
+        // Steps 72..79: a^0x44e992b44a6909c0 -> ...9e9 -> ...9f1.
+        t1 = fp12CyclotomicSquareN(t1, 6)
+        t0 = fp12Mul(t0, t1)
+        return fp12Mul(result, t0)
+    }
+
+    // One precombined Miller result: raise a to s*(p^12-1)/r, where
+    // s=2*x0*(6*x0^2+3*x0+1) and gcd(s,r)=1 for the pinned BN254 scalar r.
+    // This preserves Gnark's identity predicate; serialized output need not
+    // equal a reference that raises to the bare canonical (p^12-1)/r.
+    // The wrapper must validate points/subgroups before generating this input.
+    // Zero is rejected before the easy part, unlike upstream inverse(0)=0.
+    fn fp12FinalExponentiation(a: [U256; 12]) -> [U256; 12] {
+        fp12Validate(a)
+        let mut nonzero = false
+        for (let mut i = 0; i < 12; i = i + 1) {
+            nonzero = nonzero || a[i] != 0
+        }
+        assert!(nonzero, FP12_ZERO_FINAL_EXPONENTIATION)
+
+        // Easy part: conjugate(a)/a = a^(p^6-1), using a true inverse.
+        // Raising that unitary value to p^2+1 establishes the cyclotomic
+        // precondition for every subsequent Expt/square/conjugate-as-inverse.
+        let mut t0 = fp12Mul(fp12Conjugate(a), fp12Inv(a))
+        let result = fp12Mul(fp12Frobenius(t0, 2), t0)
+
+        // Preserve the exact upstream easy-result-one shortcut.
+        let mut isOne = result[0] == 1
+        for (let mut i = 1; i < 12; i = i + 1) {
+            isOne = isOne && result[i] == 0
+        }
+        if (isOne) {
+            return result
+        }
+
+        // Hard part: Duquesne/Ghammam, Fuentes et al. algorithm 6, as pinned.
+        // Its exponent is exactly s*(p^4-p^2+1)/r. For x=x0 the polynomial is:
+        // (12*x^3+12*x^2+6*x+1) + (12*x^3+6*x^2+4*x)*p
+        // + (12*x^3+6*x^2+6*x)*p^2 + (12*x^3+6*x^2+4*x-1)*p^3.
+        // References use the cyclotomic result as the common exponent base.
+        t0 = fp12Conjugate(fp12Expt(result))
+        t0 = fp12CyclotomicSquare(t0)
+        let mut t1 = fp12CyclotomicSquare(t0)
+        t1 = fp12Mul(t0, t1)
+        let mut t2 = fp12Expt(t1)
+        t2 = fp12Conjugate(t2)
+        let mut t3 = fp12Conjugate(t1)
+        t1 = fp12Mul(t2, t3)
+        t3 = fp12CyclotomicSquare(t2)
+        let mut t4 = fp12Expt(t3)
+        t4 = fp12Mul(t1, t4)
+        t3 = fp12Mul(t0, t4)
+        t0 = fp12Mul(t2, t4)
+        t0 = fp12Mul(result, t0)
+        t2 = fp12Frobenius(t3, 1)
+        t0 = fp12Mul(t2, t0)
+        t2 = fp12Frobenius(t4, 2)
+        t0 = fp12Mul(t2, t0)
+        t2 = fp12Conjugate(result)
+        t2 = fp12Mul(t2, t3)
+        t2 = fp12Frobenius(t2, 3)
+        return fp12Mul(t2, t0)
+    }
+}

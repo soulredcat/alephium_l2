@@ -1,0 +1,103 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2020 ConsenSys AG (Gnark Crypto reference).
+// Licensed under the Apache License, Version 2.0; retained text in this directory.
+// Streaming MillerLoop translated from Gnark Crypto revision
+// 703a260c2f991d01e245adf53d20f76af4210c5f, ecc/bn254/pairing.go.
+// https://github.com/Consensys/gnark-crypto/blob/703a260c2f991d01e245adf53d20f76af4210c5f/ecc/bn254/pairing.go
+// LoopCounter is ecc.NafDecomposition(29793968203157093288), bn254.go init.
+// Homogeneous point [X.real,X.u,Y.real,Y.u,Z.real,Z.u], x=X/Z, y=Y/Z.
+// Never pass these accumulators to the existing Jacobian G2 operations.
+// Lines [r0.real,r0.u,r1.real,r1.u,r2.real,r2.u] evaluate into slots 034.
+// Four input pairs: [G1.x,G1.y,G2.x.real,G2.x.u,G2.y.real,G2.y.u].
+// Its private caller must establish complete admission before invocation,
+// including Q when P is infinity. The generic wrapper checks every unique raw
+// Q; the fixed receipt checks proof B and uses certified immutable VK literals.
+// No precomputed lines, persistent cache or caller admission flag exists.
+
+// Shared checked line composition and exact constants; loop schedules remain
+// in the ordinary engine and the separate integrated residue implementation.
+
+Abstract Contract Bn254MillerCore(fpModulus: U256) extends Bn254MillerLines(fpModulus),
+    Bn254Sparse(fpModulus) {
+    // Exact 66 signed digits, little endian, compactly represented as two masks.
+    // Index 0..21: 0,0,0,1,0,1,0,-1,0,0,-1,0,0,0,1,0,0,-1,0,-1,0,0
+    // Index 22..43: 0,1,0,-1,0,0,0,0,-1,0,0,1,0,-1,0,0,1,0,0,0,0,0
+    // Index 44..65: -1,0,0,-1,0,1,0,-1,0,0,0,-1,0,-1,0,0,0,1,0,-1,0,1
+    // sum(digit[i]*2^i)=6*x0+2; index65=1, index64=0, index63=-1.
+    const MILLER_PSI_X_REAL = 21575463638280843010398324269430826099269044274347216827212613867836435027261
+    const MILLER_PSI_X_IMAGINARY = 10307601595873709700152284273816112264069230130616436755625194854815875713954
+    const MILLER_PSI_Y_REAL = 2821565182194536844548159561693502659359617185244120367078079554186484126554
+    const MILLER_PSI_Y_IMAGINARY = 3505843767911556378687030309984248845540243509899259641013678093033130930403
+    const MILLER_POSITIVE_DIGITS = 39199894390062465064
+    const MILLER_NEGATIVE_DIGITS = 9405926186905371776
+    const MILLER_FROBENIUS2_X = 21888242871839275220042445260109153167277707414472061641714758635765020556616
+
+    // Explicit stable FP2 copies avoid the pinned compiler's inline binding bug.
+    fn mEvaluate(line: [U256; 6], p: [U256; 2]) -> [U256; 6] {
+        fp2Validate([line[4], line[5]])
+        return [fpMul(line[0], p[1]), fpMul(line[1], p[1]),
+            fpMul(line[2], p[0]), fpMul(line[3], p[0]), line[4], line[5]]
+    }
+
+    // Source Mul034By034 followed immediately by MulBy01234.
+    fn mAppendTwo(a: [U256; 12], first: [U256; 6], second: [U256; 6]) -> [U256; 12] {
+        let product = fp12Mul034By034([first[0], first[1]], [first[2], first[3]],
+            [first[4], first[5]], [second[0], second[1]], [second[2], second[3]],
+            [second[4], second[5]])
+        return fp12MulBy01234(a, product)
+    }
+
+    // i=63: line(2Q,-Q), then addMixed(2Q,Q) -> 3Q. No extra double.
+    // Return new homogeneous point followed by the Fp12 accumulator.
+    fn mSpecial63(a: [U256; 12], point: [U256; 6], q: [U256; 4], p: [U256; 2]) -> [U256; 18] {
+        let negativeQ = [q[0], q[1], fpNeg(q[2]), fpNeg(q[3])]
+        let second = mEvaluate(mLineCompute(point, negativeQ), p)
+        let step = mAddMixed(point, q)
+        let first = mEvaluate([step[6], step[7], step[8], step[9], step[10], step[11]], p)
+        let result = mAppendTwo(a, first, second)
+        return [step[0], step[1], step[2], step[3], step[4], step[5],
+            result[0], result[1], result[2], result[3], result[4], result[5],
+            result[6], result[7], result[8], result[9], result[10], result[11]]
+    }
+
+    // i<=62: tangent followed by the signed Q addition, if present.
+    // Digit encodings 0,1,2 mean signed values 0,+1,-1 respectively.
+    fn mAdvance(a: [U256; 12], point: [U256; 6], q: [U256; 4], p: [U256; 2], digit: U256) -> [U256; 18] {
+        let doubled = mDouble(point)
+        let first = mEvaluate([doubled[6], doubled[7], doubled[8], doubled[9], doubled[10], doubled[11]], p)
+        let mut next = [doubled[0], doubled[1], doubled[2], doubled[3], doubled[4], doubled[5]]
+        let mut result = a
+        if (digit == 0) {
+            result = fp12MulBy034(a, [first[0], first[1]], [first[2], first[3]], [first[4], first[5]])
+        } else {
+            let mut signedQ = q
+            if (digit == 2) {
+                signedQ = [q[0], q[1], fpNeg(q[2]), fpNeg(q[3])]
+            }
+            let added = mAddMixed(next, signedQ)
+            next = [added[0], added[1], added[2], added[3], added[4], added[5]]
+            let second = mEvaluate([added[6], added[7], added[8], added[9], added[10], added[11]], p)
+            result = mAppendTwo(a, first, second)
+        }
+        return [next[0], next[1], next[2], next[3], next[4], next[5],
+            result[0], result[1], result[2], result[3], result[4], result[5],
+            result[6], result[7], result[8], result[9], result[10], result[11]]
+    }
+
+    // Final Frobenius correction: add π(Q), then compute line to -π²(Q).
+    // Factors are canonical existing c[1,2], c[1,3], c[2,2], c[2,3].
+    // Preserve the raw line multiplication order (line-to-Q2, line-to-Q1).
+    fn mCorrect(a: [U256; 12], point: [U256; 6], q: [U256; 4], p: [U256; 2]) -> [U256; 12] {
+        let q1x = fp2Mul([q[0], fpNeg(q[1])], [MILLER_PSI_X_REAL, MILLER_PSI_X_IMAGINARY])
+        let q1y = fp2Mul([q[2], fpNeg(q[3])], [MILLER_PSI_Y_REAL, MILLER_PSI_Y_IMAGINARY])
+        let q2x = [fpMul(q[0], MILLER_FROBENIUS2_X), fpMul(q[1], MILLER_FROBENIUS2_X)]
+        let q2yProduct = [fpMul(q[2], fpModulus - 1), fpMul(q[3], fpModulus - 1)]
+        let q2y = fp2Neg([q2yProduct[0], q2yProduct[1]])
+        let step = mAddMixed(point, [q1x[0], q1x[1], q1y[0], q1y[1]])
+        let second = mEvaluate([step[6], step[7], step[8], step[9], step[10], step[11]], p)
+        let first = mEvaluate(mLineCompute([step[0], step[1], step[2], step[3], step[4], step[5]],
+            [q2x[0], q2x[1], q2y[0], q2y[1]]), p)
+        return mAppendTwo(a, first, second)
+    }
+
+}

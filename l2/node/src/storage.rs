@@ -1,7 +1,7 @@
 mod block;
 mod blocks;
 mod checkpoint;
-mod encoding;
+use crate::protocol::encoding;
 pub(crate) mod path;
 mod records;
 mod recovery;

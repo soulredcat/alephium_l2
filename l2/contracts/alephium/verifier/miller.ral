@@ -1,0 +1,46 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2020 ConsenSys AG (Gnark Crypto reference).
+// Licensed under the Apache License, Version 2.0; retained text in this directory.
+// Streaming MillerLoop translated from Gnark Crypto revision
+// 703a260c2f991d01e245adf53d20f76af4210c5f, ecc/bn254/pairing.go.
+// https://github.com/Consensys/gnark-crypto/blob/703a260c2f991d01e245adf53d20f76af4210c5f/ecc/bn254/pairing.go
+// LoopCounter is ecc.NafDecomposition(29793968203157093288), bn254.go init.
+// Homogeneous point [X.real,X.u,Y.real,Y.u,Z.real,Z.u], x=X/Z, y=Y/Z.
+// Never pass these accumulators to the existing Jacobian G2 operations.
+// Lines [r0.real,r0.u,r1.real,r1.u,r2.real,r2.u] evaluate into slots 034.
+// Four input pairs: [G1.x,G1.y,G2.x.real,G2.x.u,G2.y.real,G2.y.u].
+// All points are admitted before any infinity omission, including Q when P
+// is infinity. G2 admission reuses only an exactly equal raw Q already admitted
+// in this invocation. No fixed-Q preparation, persistent cache or caller flag.
+
+Abstract Contract Bn254Miller(fpModulus: U256) extends Bn254MillerEngine(fpModulus),
+    Bn254G1Validation(fpModulus), Bn254G2Subgroup(fpModulus), Bn254Exponent(fpModulus) {
+    fn millerLoop4(pairs: [U256; 24]) -> [U256; 12] {
+        // Complete logical canonical/curve/subgroup admission before any skip.
+        // Previous slots are admitted by induction. Compare all four original
+        // immutable U256 coordinates before reduction; exact equality inherits
+        // their target-checked admission. A distinct Q runs the full check.
+        for (let mut k = 0; k < 4; k = k + 1) {
+            let offset = 6 * k
+            g1Validate([pairs[offset], pairs[offset + 1]])
+            let mut previouslyAdmitted = false
+            for (let mut previous = 0; previous < k && !previouslyAdmitted; previous = previous + 1) {
+                let priorOffset = 6 * previous
+                previouslyAdmitted = pairs[offset + 2] == pairs[priorOffset + 2]
+                    && pairs[offset + 3] == pairs[priorOffset + 3]
+                    && pairs[offset + 4] == pairs[priorOffset + 4]
+                    && pairs[offset + 5] == pairs[priorOffset + 5]
+            }
+            if (!previouslyAdmitted) {
+                g2CheckSubgroup([pairs[offset + 2], pairs[offset + 3], pairs[offset + 4], pairs[offset + 5]])
+            }
+        }
+        return millerLoopAdmitted4(pairs)
+    }
+
+    // One exact Gnark final exponentiation after the four-pair product.
+    // Serialized output has Gnark's documented cofactor normalization s.
+    fn pairing4(pairs: [U256; 24]) -> [U256; 12] {
+        return fp12FinalExponentiation(millerLoop4(pairs))
+    }
+}

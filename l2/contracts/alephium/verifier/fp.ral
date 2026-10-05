@@ -1,0 +1,92 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2020 ConsenSys Software Inc. (Gnark Crypto reference).
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//     https://www.apache.org/licenses/LICENSE-2.0
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// Canonical Ralph arithmetic for the BN254 base field, using the modulus and
+// algebra from Gnark Crypto revision 703a260c2f991d01e245adf53d20f76af4210c5f:
+// ecc/bn254/fp/element.go. This translates algebra, not Montgomery limb code.
+// https://github.com/Consensys/gnark-crypto/blob/703a260c2f991d01e245adf53d20f76af4210c5f/ecc/bn254/fp/element.go
+// Every argument and result is one canonical U256 in [0, fpModulus).
+// Internal calls share one immutable modulus field in the inheriting contract.
+// Every public entry must call fpCheckParameters before all arithmetic/shortcuts.
+// Private helpers rely on that fixed-parameter precondition and check inputs.
+// Functional field evidence and limits are recorded in the adjacent README.
+
+Abstract Contract Bn254Fp(fpModulus: U256) {
+    const EXPECTED_FP_MODULUS = 21888242871839275222246405745257275088696311157297823662689037894645226208583
+    const FP_INV_EXPONENT = EXPECTED_FP_MODULUS - 2
+    const FP_INVALID_ELEMENT = 1000
+    const FP_ZERO_INVERSE = 1001
+
+    // The field is a code-layout optimization, never a selectable curve parameter.
+    fn fpCheckParameters() -> () {
+        assert!(fpModulus == EXPECTED_FP_MODULUS, 1002)
+    }
+
+    // Validate before any reduction so malformed external coordinates fail.
+    @inline fn fpValidate(a: U256) -> () {
+        assert!(a < fpModulus, FP_INVALID_ELEMENT)
+    }
+
+    @inline fn fpAdd(a: U256, b: U256) -> U256 {
+        fpValidate(a)
+        fpValidate(b)
+        return addModN!(a, b, fpModulus)
+    }
+
+    @inline fn fpSub(a: U256, b: U256) -> U256 {
+        fpValidate(a)
+        fpValidate(b)
+        if (a >= b) {
+            return a - b
+        } else {
+            // Here 0 < b-a < p: neither subtraction wraps or underflows.
+            return fpModulus - (b - a)
+        }
+    }
+
+    @inline fn fpNeg(a: U256) -> U256 {
+        fpValidate(a)
+        if (a == 0) {
+            return 0
+        } else {
+            return fpModulus - a
+        }
+    }
+
+    @inline fn fpMul(a: U256, b: U256) -> U256 {
+        fpValidate(a)
+        fpValidate(b)
+        return mulModN!(a, b, fpModulus)
+    }
+
+    @inline fn fpSquare(a: U256) -> U256 {
+        fpValidate(a)
+        return mulModN!(a, a, fpModulus)
+    }
+
+    // Fermat inverse: a^(p-2) mod p, with a fixed 254-bit public exponent.
+    // Unlike the upstream zero-return behavior, division by zero is rejected.
+    // Ralph |**| is modulo 2^256, so it cannot be used for this operation.
+    fn fpInv(a: U256) -> U256 {
+        fpValidate(a)
+        assert!(a != 0, FP_ZERO_INVERSE)
+        let mut result = 1
+        for (let mut remaining = 254; remaining > 0; remaining = remaining - 1) {
+            result = mulModN!(result, result, fpModulus)
+            if (((FP_INV_EXPONENT >> (remaining - 1)) & 1) != 0) {
+                result = mulModN!(result, a, fpModulus)
+            }
+        }
+        return result
+    }
+}

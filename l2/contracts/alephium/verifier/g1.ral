@@ -1,0 +1,190 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2020 ConsenSys Software Inc. (Gnark Crypto reference).
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//     https://www.apache.org/licenses/LICENSE-2.0
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// G1 algebra from Gnark Crypto 703a260c2f991d01e245adf53d20f76af4210c5f:
+// ecc/bn254/g1.go FromAffine, FromJacobian, AddAssign, DoubleAssign and
+// mulWindowed (two bits, not the separate default GLV multiplication).
+// https://github.com/Consensys/gnark-crypto/blob/703a260c2f991d01e245adf53d20f76af4210c5f/ecc/bn254/g1.go
+// Affine [x,y] has infinity [0,0]; Jacobian [X,Y,Z] has infinity [1,1,0].
+// The latter matches FromAffine and bn254.go's initialized g1Infinity.
+// Finite Jacobian x=X/Z^2, y=Y/Z^3. Each component is canonical Fp.
+// Private Jacobian arithmetic requires finite points produced by validated
+// affine conversion or prior helpers. Canonical coordinates/infinity are
+// checked at every helper entry; affine boundaries also check the curve.
+// Value arguments and fresh temporaries retain upstream alias safety.
+
+Abstract Contract Bn254G1(fpModulus: U256) extends Bn254G1Validation(fpModulus) {
+    const G1_SCALAR_MODULUS = 21888242871839275222246405745257275088548364400416034343698204186575808495617
+    const G1_INVALID_SCALAR = 1101
+
+    // Only public nonnegative canonical scalar-field values are admitted.
+    @inline fn g1ScalarValidate(scalar: U256) -> () {
+        assert!(scalar < G1_SCALAR_MODULUS, G1_INVALID_SCALAR)
+    }
+
+    // Internal finite-curve precondition is preserved by add/double/mul.
+    fn g1JacValidate(a: [U256; 3]) -> () {
+        fpValidate(a[0])
+        fpValidate(a[1])
+        fpValidate(a[2])
+        if (a[2] == 0) {
+            assert!(a[0] == 1 && a[1] == 1, G1_INVALID_POINT)
+        }
+    }
+
+    fn g1FromAffine(a: [U256; 2]) -> [U256; 3] {
+        g1Validate(a)
+        if (a[0] == 0 && a[1] == 0) {
+            return [1, 1, 0]
+        } else {
+            return [a[0], a[1], 1]
+        }
+    }
+
+    // Validate the original y before negation, including infinity input.
+    fn g1Neg(a: [U256; 2]) -> [U256; 2] {
+        g1Validate(a)
+        return [a[0], fpNeg(a[1])]
+    }
+
+    fn g1ToAffine(a: [U256; 3]) -> [U256; 2] {
+        g1JacValidate(a)
+        if (a[2] == 0) {
+            return [0, 0]
+        } else {
+            let inverseZ = fpInv(a[2])
+            let inverseZSquared = fpSquare(inverseZ)
+            let x = fpMul(a[0], inverseZSquared)
+            let y = fpMul(fpMul(a[1], inverseZSquared), inverseZ)
+            let result = [x, y]
+            // A finite Jacobian must not masquerade as affine infinity.
+            assert!(x != 0 || y != 0, G1_INVALID_POINT)
+            g1Validate(result)
+            return result
+        }
+    }
+
+    // Pinned AddAssign orientation: U1/S1 belong to b, U2/S2 to a.
+    fn g1JacAdd(a: [U256; 3], b: [U256; 3]) -> [U256; 3] {
+        g1JacValidate(a)
+        g1JacValidate(b)
+        if (a[2] == 0) {
+            return b
+        }
+        if (b[2] == 0) {
+            return a
+        }
+        let z1z1 = fpSquare(b[2])
+        let z2z2 = fpSquare(a[2])
+        let u1 = fpMul(b[0], z2z2)
+        let u2 = fpMul(a[0], z1z1)
+        let s1 = fpMul(fpMul(b[1], a[2]), z2z2)
+        let s2 = fpMul(fpMul(a[1], b[2]), z1z1)
+        if (u1 == u2) {
+            if (s1 == s2) {
+                return g1JacDouble(a)
+            } else {
+                // Opposite points must produce the canonical infinity.
+                return [1, 1, 0]
+            }
+        }
+        let h = fpSub(u2, u1)
+        let i = fpSquare(fpAdd(h, h))
+        let j = fpMul(h, i)
+        let difference = fpSub(s2, s1)
+        let r = fpAdd(difference, difference)
+        let v = fpMul(u1, i)
+        let x = fpSub(fpSub(fpSquare(r), j), fpAdd(v, v))
+        let s1j = fpMul(s1, j)
+        let y = fpSub(fpMul(fpSub(v, x), r), fpAdd(s1j, s1j))
+        let sumZ = fpAdd(a[2], b[2])
+        let z = fpMul(fpSub(fpSub(fpSquare(sumZ), z1z1), z2z2), h)
+        return [x, y, z]
+    }
+
+    // Exact DoubleAssign algebra, a=0 curve. Z'=2*Y*Z without inversion.
+    fn g1JacDouble(a: [U256; 3]) -> [U256; 3] {
+        g1JacValidate(a)
+        if (a[2] == 0 || a[1] == 0) {
+            return [1, 1, 0]
+        }
+        let xx = fpSquare(a[0])
+        let yy = fpSquare(a[1])
+        let yyyy = fpSquare(yy)
+        let zz = fpSquare(a[2])
+        let sumXYY = fpAdd(a[0], yy)
+        let sHalf = fpSub(fpSub(fpSquare(sumXYY), xx), yyyy)
+        let s = fpAdd(sHalf, sHalf)
+        let m = fpAdd(fpAdd(xx, xx), xx)
+        let sumZY = fpAdd(a[2], a[1])
+        let z = fpSub(fpSub(fpSquare(sumZY), yy), zz)
+        let x = fpSub(fpSquare(m), fpAdd(s, s))
+        let twiceYYYY = fpAdd(yyyy, yyyy)
+        let fourYYYY = fpAdd(twiceYYYY, twiceYYYY)
+        let eightYYYY = fpAdd(fourYYYY, fourYYYY)
+        let y = fpSub(fpMul(fpSub(s, x), m), eightYYYY)
+        return [x, y, z]
+    }
+
+    // Same nonnegative mulWindowed table and big-endian byte/window order.
+    // Ignore only leading zero bytes, as big.Int.Bytes does upstream.
+    // Return Jacobian so five-signal MSM incurs a single normalization.
+    fn g1Mul(a: [U256; 2], scalar: U256) -> [U256; 3] {
+        g1Validate(a)
+        g1ScalarValidate(scalar)
+        if (scalar == 0 || (a[0] == 0 && a[1] == 0)) {
+            return [1, 1, 0]
+        }
+        let point = g1FromAffine(a)
+        let twice = g1JacDouble(point)
+        let triple = g1JacAdd(point, twice)
+        let mut result = [1, 1, 0]
+        let mut remaining = 256
+        for (let mut byte = 32; byte > 1 && (scalar >> (8 * (byte - 1))) == 0; byte = byte - 1) {
+            remaining = remaining - 8
+        }
+        for (let mut bits = remaining; bits > 0; bits = bits - 2) {
+            result = g1JacDouble(g1JacDouble(result))
+            let digit = (scalar >> (bits - 2)) & 3
+            if (digit == 1) {
+                result = g1JacAdd(result, point)
+            } else if (digit == 2) {
+                result = g1JacAdd(result, twice)
+            } else if (digit == 3) {
+                result = g1JacAdd(result, triple)
+            } else {
+                // The zero digit has no point addition.
+            }
+        }
+        return result
+    }
+
+    // vk_x = IC0 + sum(signals[i] * IC[i+1], i=0..4).
+    // Flattened points contain the six IC affine x,y pairs in source order.
+    // Validate every point/signal even when its scalar contribution is zero.
+    fn g1Msm(points: [U256; 12], signals: [U256; 5]) -> [U256; 2] {
+        for (let mut i = 0; i < 6; i = i + 1) {
+            g1Validate([points[2 * i], points[2 * i + 1]])
+        }
+        for (let mut i = 0; i < 5; i = i + 1) {
+            g1ScalarValidate(signals[i])
+        }
+        let mut result = g1FromAffine([points[0], points[1]])
+        for (let mut i = 0; i < 5; i = i + 1) {
+            let index = 2 * (i + 1)
+            let term = g1Mul([points[index], points[index + 1]], signals[i])
+            result = g1JacAdd(result, term)
+        }
+        return g1ToAffine(result)
+    }
+}

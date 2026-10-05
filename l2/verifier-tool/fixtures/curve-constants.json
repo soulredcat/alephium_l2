@@ -1,0 +1,143 @@
+{
+  "schema": "bn254-curve-constants-v1",
+  "field_modulus": "21888242871839275222246405745257275088696311157297823662689037894645226208583",
+  "scalar_modulus": "21888242871839275222246405745257275088548364400416034343698204186575808495617",
+  "positive_seed": "4965661367192848881",
+  "fp2_component_order": [
+    "real",
+    "u"
+  ],
+  "ethereum_fp2_wire_order": [
+    "u",
+    "real"
+  ],
+  "g1": {
+    "curve": "y^2=x^3+3",
+    "generator": [
+      "1",
+      "2"
+    ],
+    "affine_infinity": [
+      "0",
+      "0"
+    ],
+    "jacobian_infinity": [
+      "1",
+      "1",
+      "0"
+    ],
+    "cofactor": "1",
+    "r_minus_one_generator": [
+      "1",
+      "21888242871839275222246405745257275088696311157297823662689037894645226208581"
+    ]
+  },
+  "g2": {
+    "curve": "y^2=x^3+3/(9+u); u^2=-1",
+    "twist_coefficient": [
+      "19485874751759354771024239261021720505790618469301721065564631296452457478373",
+      "266929791119991161246907387137283842545076965332900288569378510910307636690"
+    ],
+    "generator": [
+      "10857046999023057135944570762232829481370756359578518086990519993285655852781",
+      "11559732032986387107991004021392285783925812861821192530917403151452391805634",
+      "8495653923123431417604973247489272438418190587263600148770280649306958101930",
+      "4082367875863433681332203403145435568316851327593401208105741076214120093531"
+    ],
+    "affine_infinity": [
+      "0",
+      "0",
+      "0",
+      "0"
+    ],
+    "jacobian_infinity": [
+      "1",
+      "0",
+      "1",
+      "0",
+      "0",
+      "0"
+    ]
+  },
+  "psi": {
+    "x_factor": [
+      "21575463638280843010398324269430826099269044274347216827212613867836435027261",
+      "10307601595873709700152284273816112264069230130616436755625194854815875713954"
+    ],
+    "y_factor": [
+      "2821565182194536844548159561693502659359617185244120367078079554186484126554",
+      "3505843767911556378687030309984248845540243509899259641013678093033130930403"
+    ],
+    "x_definition": "(9+u)^((p-1)/3)",
+    "y_definition": "(9+u)^((p-1)/2)",
+    "jacobian_map": "(conj(X)*x_factor, conj(Y)*y_factor, conj(Z))",
+    "tower_fixture_slots": "frobenius[1][1] for X and frobenius[1][2] for Y (zero-based indices)"
+  },
+  "subgroup_relation": "[x0+1]Q + psi([x0]Q) + psi^2([x0]Q) = psi^3([2*x0]Q)",
+  "non_subgroup_fixture": {
+    "provenance": "Deterministic raw x/sqrt construction using reviewed Arkworks API; this is not a literal copied from an official vector.",
+    "candidate_limit": 64,
+    "x_sequence": "x_i=(i,1), i=0..63",
+    "root": "Arkworks get_point_from_x_unchecked(x,false): smaller root, comparing Fq2 imaginary coefficient first then real",
+    "selected_candidate": 0,
+    "affine": [
+      "0",
+      "1",
+      "5857410223677516958241855868975604786906559121396168184066542210254491971240",
+      "3499505209057624827709920819629410982529044040404494099368353913743455207650"
+    ],
+    "on_curve": true,
+    "raw_r_multiple_is_infinity": false,
+    "gnark_relation": false,
+    "cofactor_cleared": false,
+    "required_target_assertion": 1201
+  },
+  "sources": {
+    "gnark_crypto": {
+      "revision": "703a260c2f991d01e245adf53d20f76af4210c5f",
+      "paths": [
+        "ecc/bn254/bn254.go",
+        "ecc/bn254/g1.go",
+        "ecc/bn254/g2.go",
+        "ecc/bn254/g2_test.go"
+      ],
+      "locations": "bn254.go init curve/generator/infinity/endo; g1.go FromAffine/FromJacobian/mulWindowed; g2.go IsInSubGroup/psi"
+    },
+    "ark_bn254": {
+      "version": "0.6.0",
+      "revision": "bffa52711f225e888c1a91e1ec9fc59f2d9d5c94",
+      "cached_source_sha256": {
+        "curves/bn254/src/curves/g1.rs": "dabf1b825d366fd08b07c0dcb6dbed221c385cf202cca65d90bb069c15aa4ab0",
+        "curves/bn254/src/curves/g2.rs": "d8423e33bc3aafb2511769ed946450d4d7454357908ba6de9a64fba48586fc02",
+        "curves/bn254/src/curves/mod.rs": "274aeb949f0a8660e5dbbbba3f23172ebcdd38805acb9408f21de27de439d4a1"
+      }
+    },
+    "ark_ec": {
+      "version": "0.6.0",
+      "revision": "bffa52711f225e888c1a91e1ec9fc59f2d9d5c94",
+      "cached_source_sha256": {
+        "ec/src/models/short_weierstrass/affine.rs": "d433d2e802ce603423341671d186fa1b5f9e637f07336eeae1cefc8ae24cf96e",
+        "ec/src/scalar_mul/mod.rs": "127f1f55f7283385f8757571a34e97dc9256ab89e1e9a83e6349487d37070f00"
+      },
+      "raw_r_oracle": "ark_ec::scalar_mul::double_and_add_affine(&q, <Fr as PrimeField>::MODULUS).is_zero()"
+    },
+    "ark_ff": {
+      "version": "0.6.0",
+      "revision": "d168323a6c7adf25210030fdd2c0be734b52f85b"
+    },
+    "encoding": "https://eips.ethereum.org/EIPS/eip-197"
+  },
+  "verification": {
+    "method": "Independent exact integer Fp2 arithmetic with u^2=-1 and affine group double-and-add; no translated Ralph formulas or scalar-field reduction.",
+    "checks": [
+      "twist coefficient equals 3/(9+u)",
+      "psi factors equal their defining powers and prior tower fixture coefficients",
+      "G1 raw-r multiple is infinity, r-1 is the negative generator and zero multiplication is infinity",
+      "generator, negative generator, seed multiple, twice-seed multiple and infinity satisfy curve, raw-r and Gnark-relation checks",
+      "raw candidate satisfies curve, rejects raw-r and Gnark-relation checks"
+    ],
+    "ark_runtime_status": "Not executed by source-review agent; root-owned Rust harness must reproduce and self-check raw candidate.",
+    "target_runtime_status": "Not executed by source-review agent."
+  },
+  "limits": "Source/constants and independent mathematical checks only; no integrated audit, target VM gas/code acceptance, complete verifier or Alephium settlement claim."
+}
