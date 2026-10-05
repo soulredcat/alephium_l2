@@ -8,7 +8,9 @@ pub(crate) mod head_codec;
 pub(crate) mod receipt_codec;
 
 pub const CHAIN_ID: u64 = 424243;
-pub const SCHEMA: u32 = 1;
+/// Schema 2 excludes absent-to-absent account removals from block changes.
+/// This is a fresh development chain profile, not an upgrade of schema 1 data.
+pub const SCHEMA: u32 = 2;
 pub const BLOCK_INTERVAL_MS: u64 = 200;
 pub const BLOCK_GAS: u64 = 30_000_000;
 pub const BLOCK_BYTES: usize = 1_048_576;

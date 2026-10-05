@@ -8,6 +8,8 @@ mod transaction;
 
 #[cfg(test)]
 mod reference_tests;
+#[cfg(test)]
+mod touch_tests;
 
 pub use batch::{ExecutionBatch, execute_block};
 pub use simulation::simulate;
