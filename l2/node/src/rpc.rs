@@ -1,16 +1,24 @@
 use crate::{protocol::*, service::NodeHandle};
 use axum::{
     Json, Router,
+    body::Bytes,
     extract::{DefaultBodyLimit, State},
+    http::{HeaderMap, StatusCode, header::CONTENT_TYPE},
+    response::{IntoResponse, Response},
     routing::{get, post},
 };
 use serde_json::{Value, json};
 use std::sync::Arc;
 use tokio::sync::Semaphore;
 
+#[cfg(test)]
+mod batch_tests;
 mod block;
 mod call;
+#[cfg(test)]
+mod compat_tests;
 mod estimate;
+mod fee_history;
 mod logs;
 mod read;
 mod receipt;
@@ -23,16 +31,25 @@ struct RpcState {
     simulations: Arc<Semaphore>,
 }
 
+/// Common client libraries batch by default (ethers v6 up to 100 calls).
+const MAX_BATCH: usize = 100;
+/// Later batch members fail once responses exceed this; one member is <= BLOCK_BYTES.
+const MAX_BATCH_RESPONSE_BYTES: usize = 4 * BLOCK_BYTES;
+
 pub fn router(node: NodeHandle) -> Router {
     Router::new()
         .route("/health", get(health))
         .route("/", post(request))
         .layer(DefaultBodyLimit::max(BLOCK_BYTES))
-        .with_state(RpcState {
-            node,
-            reads: Arc::new(Semaphore::new(32)),
-            simulations: Arc::new(Semaphore::new(4)),
-        })
+        .with_state(state(node))
+}
+
+fn state(node: NodeHandle) -> RpcState {
+    RpcState {
+        node,
+        reads: Arc::new(Semaphore::new(32)),
+        simulations: Arc::new(Semaphore::new(4)),
+    }
 }
 
 async fn health(State(state): State<RpcState>) -> Json<Value> {
@@ -45,20 +62,88 @@ async fn health(State(state): State<RpcState>) -> Json<Value> {
         "local_commit_id":head.as_ref().map(|h| h.commit_id),
         "genesis_id":head.as_ref().map(|h| h.genesis_id),
         "pending":state.node.pending_count(),"settlement":"unimplemented","error":failure,
-        "rpc_profile":"development/c5-v1","transaction_types":["0x0","0x2"],"base_fee":"0x0"}),
+        "rpc_profile":"development/c5-v1","transaction_types":["0x0","0x2"],"base_fee":"0x0",
+        "min_gas_price":format!("0x{:x}", state.node.min_gas_price())}),
     )
 }
 
-async fn request(State(state): State<RpcState>, Json(input): Json<Value>) -> Json<Value> {
-    let id = input.get("id").cloned().unwrap_or(Value::Null);
+async fn request(State(state): State<RpcState>, headers: HeaderMap, body: Bytes) -> Response {
+    // Same media types the previous JSON extractor accepted.
+    if !json_content(&headers) {
+        return StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response();
+    }
+    match respond(state, &body).await {
+        Some(response) => Json(response).into_response(),
+        None => StatusCode::NO_CONTENT.into_response(),
+    }
+}
+
+fn json_content(headers: &HeaderMap) -> bool {
+    headers
+        .get(CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split(';').next())
+        .map(|mime| mime.trim().to_ascii_lowercase())
+        .is_some_and(|mime| {
+            mime == "application/json"
+                || mime.starts_with("application/") && mime.ends_with("+json")
+        })
+}
+
+/// JSON-RPC 2.0 single or batch request. Batch members run in order and each
+/// keeps the single-request bounds; malformed JSON is a -32700 response.
+async fn respond(state: RpcState, body: &[u8]) -> Option<Value> {
+    let Ok(input) = serde_json::from_slice::<Value>(body) else {
+        return Some(error(Value::Null, -32700, "Parse error"));
+    };
+    let Value::Array(calls) = input else {
+        return single(state, input, false).await;
+    };
+    if calls.is_empty() || calls.len() > MAX_BATCH {
+        return Some(error(Value::Null, -32600, "Invalid request"));
+    }
+    let mut responses = Vec::with_capacity(calls.len());
+    let mut bytes = 0usize;
+    for call in calls {
+        let Some(response) = single(state.clone(), call, bytes > MAX_BATCH_RESPONSE_BYTES).await
+        else {
+            continue;
+        };
+        bytes = bytes.saturating_add(serde_json::to_vec(&response).map_or(0, |bytes| bytes.len()));
+        responses.push(response);
+    }
+    (!responses.is_empty()).then_some(Value::Array(responses))
+}
+
+async fn single(state: RpcState, input: Value, response_limit_reached: bool) -> Option<Value> {
+    let id = input.get("id").cloned();
+    let valid_id = id
+        .as_ref()
+        .is_none_or(|id| id.is_null() || id.is_string() || id.is_number());
     if !input.is_object()
         || input.get("jsonrpc").and_then(Value::as_str) != Some("2.0")
-        || !(id.is_null() || id.is_string() || id.is_number())
+        || input.get("method").and_then(Value::as_str).is_none()
+        || input
+            .get("params")
+            .is_some_and(|params| !params.is_array() && !params.is_object())
+        || !valid_id
     {
-        return Json(error(id, -32600, "Invalid request"));
+        let id = if valid_id {
+            id.unwrap_or(Value::Null)
+        } else {
+            Value::Null
+        };
+        return Some(error(id, -32600, "Invalid request"));
     }
-    let result = dispatch(state, input).await;
-    Json(match result {
+    // Notifications still execute, including after the response budget is used;
+    // they never contribute a response. MAX_BATCH bounds their work count too.
+    let result = if response_limit_reached && id.is_some() {
+        Err(RpcError::from("Batch response exceeds bound".to_string()))
+    } else {
+        dispatch(state, input).await
+    };
+    let id = id?;
+    Some(match result {
         Ok(value) => json!({"jsonrpc":"2.0","id":id,"result":value}),
         Err(failure) => {
             let mut response = error(id, failure.code, &failure.message);
@@ -121,6 +206,11 @@ async fn dispatch(state: RpcState, input: Value) -> Result<Value, RpcError> {
         )?;
         let status = state.node.submit(raw).await?;
         return Ok(json!(status.hash));
+    }
+    if matches!(method, "eth_gasPrice" | "eth_maxPriorityFeePerGas") {
+        parameters(&input, 0, 0)?;
+        // With a zero base fee the priority fee is the whole price; never suggest zero.
+        return Ok(json!(format!("0x{:x}", state.node.min_gas_price().max(1))));
     }
     let pool = if matches!(method, "eth_call" | "eth_estimateGas") {
         state.simulations

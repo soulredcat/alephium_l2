@@ -22,6 +22,7 @@ dependencies = [
  "alloy-consensus",
  "alloy-eips",
  "alloy-primitives",
+ "alloy-rpc-types-eth",
  "alloy-signer",
  "alloy-signer-local",
  "axum",

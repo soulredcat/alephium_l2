@@ -57,3 +57,49 @@ jobs:
           key: test-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}
       # The default smoke target must run in its isolated mode.
       - run: cargo test --workspace --locked
+
+  proof-core:
+    name: Proof core agreement
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned toolchain
+        run: rustup toolchain install
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+            l2/proof/target
+          key: proof-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock', 'l2/proof/Cargo.lock') }}
+      # l2/proof is an independent workspace; run its commands from there.
+      - name: Format and clippy (core and host)
+        working-directory: l2/proof
+        run: |
+          cargo fmt --all --check
+          cargo clippy -p alephium-l2-transition-core -p alephium-l2-transition-prover --all-targets --locked -- -D warnings
+          cargo test -p alephium-l2-transition-prover --locked
+      # Native producer exports, as in docs/HANDOFF.md; no guest build or proving.
+      - name: Export runtime transition fixtures
+        run: |
+          umask 077
+          work="$RUNNER_TEMP/fixtures"
+          mkdir -p "$work"
+          L2_TRANSITION_OUTPUT="$work/transition" \
+            cargo test -p alephium-l2-node --locked --test transition
+          L2_PRECOMPILE_OUTPUT="$work/precompile" \
+            cargo test -p alephium-l2-node --locked --test precompile_transition
+          L2_CHECKPOINT_FIXTURE="$work/transition" L2_CHECKPOINT_OUTPUT="$work/checkpoint" \
+            cargo test -p alephium-l2-node --locked --test checkpoint_transition -- --ignored
+      - name: Portable core agrees with the runtime
+        working-directory: l2/proof
+        run: |
+          work="$RUNNER_TEMP/fixtures"
+          L2_TRANSITION_INPUT="$work/transition/export/transition.json" \
+            cargo test -p alephium-l2-transition-core --locked --test batch
+          L2_PRECOMPILE_INPUT="$work/precompile/export/transition.json" \
+            cargo test -p alephium-l2-transition-core --locked --test precompile
+          L2_CHECKPOINT_INPUT_ROOT="$work/checkpoint" \
+            cargo test -p alephium-l2-transition-core --locked --test checkpoint

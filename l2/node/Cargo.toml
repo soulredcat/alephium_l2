@@ -22,5 +22,6 @@ hex = "0.4"
 
 [dev-dependencies]
 alephium-l2-sdk = { path = "../sdk" }
+alloy-rpc-types-eth = "=2.5.0"
 tempfile = "=3.23.0"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json"] }
