@@ -1,0 +1,237 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright 2024 RISC Zero, Inc. (inherited receipt wrapper/key semantics).
+// Original GPL wrapper and Apache receipt encoding notices remain in
+// receipt_claims.ral and verification_key.ral. The inherited field and Miller
+// components retain their Apache-2.0 provenance. This composition is supplied
+// without warranty under GNU GPL version 3 or, optionally, any later version.
+// https://www.gnu.org/licenses/gpl-3.0.html
+//
+// One isolated proof instance, with no reset or asset authority. Creation must
+// use the exact modulus, zero numeric fields/arrays and the zero32 statement.
+// These constructor fields are not an arithmetic checkpoint input. Each public
+// transition derives the next state on target; only finish can accept a proof.
+// Acceptance is meaningful only for an authenticated canonical instance:
+// arbitrary same-code creation can forge mutable stage fields. This contract has
+// no creation authenticator or bridge authority to establish that origin.
+// Auxiliary v1 remains #01 || stateRootInverse[12] || stateCorrection[6], canonical BE Fp.
+// Dynamic pair order is original slots 0,2,3; the certified slot 1 is appended
+// once after ordinary Q corrections. Homogeneous statePoints use x=X/Z, y=Y/Z.
+
+Contract Risc0StagedReceiptVerifier(fpModulus: U256, mut stateStatus: U256, mut stateCursor: U256,
+    mut statePairs: [U256; 18], mut statePoints: [U256; 18], mut stateRootInverse: [U256; 12],
+    mut stateRoot: [U256; 12], mut stateAccumulator: [U256; 12], mut stateCorrection: [U256; 6],
+    mut stateStatementId: ByteVec) extends Risc0ReceiptClaims(fpModulus),
+    Bn254MillerCore(fpModulus), Bn254Frobenius(fpModulus), Risc0FixedPair(fpModulus) {
+    const RESIDUE_INVALID_LENGTH = 1430
+    const RESIDUE_INVALID_VERSION = 1431
+    const RESIDUE_ZERO_ROOT_INVERSE = 1432
+    const RESIDUE_PAIRING_FAILED = 1404
+    const STAGED_WRONG_PHASE = 1500
+    const STAGED_WRONG_STATEMENT = 1501
+    const STAGED_WRONG_CURSOR = 1502
+    // Exact ASCII domain ALPH/L2/stagedreceipt/v1. Identity preimage is 188B:
+    // domain24 || selfContractId32 || selector4 || image32 || journal32
+    // || SHA256(seal)32 || SHA256(auxiliary)32, with no optional components.
+    const STAGED_STATEMENT_DOMAIN = #414c50482f4c322f737461676564726563656970742f7631
+    const STAGED_DIGITS_PER_ADVANCE = 8
+
+    fn stagedDecodeAuxiliary(auxiliary: ByteVec) -> [U256; 18] {
+        let mut words = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        for (let mut i = 0; i < 18; i = i + 1) {
+            let offset = 1 + 32 * i
+            words[i] = u256From32Byte!(byteVecSlice!(auxiliary, offset, offset + 32))
+            fpValidate(words[i])
+        }
+        return words
+    }
+
+    fn stagedPairActive(pair: [U256; 6]) -> Bool {
+        let pInfinity = pair[0] == 0 && pair[1] == 0
+        let qInfinity = pair[2] == 0 && pair[3] == 0 && pair[4] == 0 && pair[5] == 0
+        return !pInfinity && !qInfinity
+    }
+
+    fn stagedInitialPoints(dynamicPairs: [U256; 18]) -> [U256; 18] {
+        let mut initial = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        for (let mut k = 0; k < 3; k = k + 1) {
+            let offset = 6 * k
+            if (stagedPairActive([dynamicPairs[offset], dynamicPairs[offset + 1],
+                dynamicPairs[offset + 2], dynamicPairs[offset + 3], dynamicPairs[offset + 4],
+                dynamicPairs[offset + 5]])) {
+                for (let mut component = 0; component < 4; component = component + 1) {
+                    initial[offset + component] = dynamicPairs[offset + component + 2]
+                }
+                initial[offset + 4] = 1
+            }
+        }
+        return initial
+    }
+
+    // Permissionless computation: exact statement/stateCursor checks authorize the
+    // transition. No caller has an administrator, key or asset privilege.
+    @using(updateFields = true, checkExternalCaller = false)
+    pub fn begin(seal: ByteVec, imageId: ByteVec, journalDigest: ByteVec,
+        auxiliary: ByteVec) -> ByteVec {
+        fpCheckParameters()
+        assert!(stateStatus == 0, STAGED_WRONG_PHASE)
+        assert!(size!(auxiliary) == 577, RESIDUE_INVALID_LENGTH)
+        assert!(byteVecSlice!(auxiliary, 0, 1) == #01, RESIDUE_INVALID_VERSION)
+        // Retain original proof admission, all five signals and the folded key.
+        let admittedPairs = receiptPairs(seal, imageId, journalDigest)
+        fixedPairGuard(admittedPairs)
+        let witness = stagedDecodeAuxiliary(auxiliary)
+        let inverseWitness = [witness[0], witness[1], witness[2], witness[3], witness[4], witness[5],
+            witness[6], witness[7], witness[8], witness[9], witness[10], witness[11]]
+        let mut nonzero = false
+        for (let mut i = 0; i < 12; i = i + 1) {
+            nonzero = nonzero || inverseWitness[i] != 0
+        }
+        assert!(nonzero, RESIDUE_ZERO_ROOT_INVERSE)
+        let derivedRoot = fp12Inv(inverseWitness)
+        let dynamicPairs = [admittedPairs[0], admittedPairs[1], admittedPairs[2],
+            admittedPairs[3], admittedPairs[4], admittedPairs[5],
+            admittedPairs[12], admittedPairs[13], admittedPairs[14], admittedPairs[15],
+            admittedPairs[16], admittedPairs[17], admittedPairs[18], admittedPairs[19],
+            admittedPairs[20], admittedPairs[21], admittedPairs[22], admittedPairs[23]]
+        let initialPoints = stagedInitialPoints(dynamicPairs)
+        let boundStatement = sha256!(STAGED_STATEMENT_DOMAIN ++ selfContractId!()
+            ++ RECEIPT_SELECTOR ++ imageId ++ journalDigest ++ sha256!(seal) ++ sha256!(auxiliary))
+        statePairs = dynamicPairs
+        statePoints = initialPoints
+        stateRootInverse = inverseWitness
+        stateRoot = derivedRoot
+        stateAccumulator = inverseWitness
+        stateCorrection = [witness[12], witness[13], witness[14], witness[15], witness[16], witness[17]]
+        stateStatementId = boundStatement
+        // Leading signed digit65 is +1 and is already represented by the seed.
+        stateCursor = 65
+        stateStatus = 1
+        return boundStatement
+    }
+
+    // One exact signed index, returning statePoints[18] followed by stateAccumulator[12].
+    // Root powers always run, even when every dynamic pairing is inactive.
+    // All squares are general field squares because the witness is arbitrary.
+    fn stagedIndex(index: U256, currentPoints: [U256; 18], value: [U256; 12]) -> [U256; 30] {
+        let mut nextPoints = currentPoints
+        let mut result = fp12Square(value)
+        let digit = ((MILLER_POSITIVE_DIGITS >> index) & 1)
+            + 2 * ((MILLER_NEGATIVE_DIGITS >> index) & 1)
+        if (digit == 1) {
+            result = fp12Mul(result, stateRootInverse)
+        } else if (digit == 2) {
+            result = fp12Mul(result, stateRoot)
+        } else {
+            // A zero signed digit retains only the general square.
+        }
+        for (let mut k = 0; k < 3; k = k + 1) {
+            let offset = 6 * k
+            if (stagedPairActive([statePairs[offset], statePairs[offset + 1], statePairs[offset + 2],
+                statePairs[offset + 3], statePairs[offset + 4], statePairs[offset + 5]])) {
+                let point = [nextPoints[offset], nextPoints[offset + 1], nextPoints[offset + 2],
+                    nextPoints[offset + 3], nextPoints[offset + 4], nextPoints[offset + 5]]
+                let q = [statePairs[offset + 2], statePairs[offset + 3], statePairs[offset + 4], statePairs[offset + 5]]
+                let p = [statePairs[offset], statePairs[offset + 1]]
+                if (index == 64) {
+                    // Append every first tangent; never overwrite the stateRoot seed.
+                    let doubled = mDouble(point)
+                    for (let mut firstCell = 0; firstCell < 6; firstCell = firstCell + 1) {
+                        nextPoints[offset + firstCell] = doubled[firstCell]
+                    }
+                    let line = mEvaluate([doubled[6], doubled[7], doubled[8],
+                        doubled[9], doubled[10], doubled[11]], p)
+                    result = fp12MulBy034(result, [line[0], line[1]], [line[2], line[3]], [line[4], line[5]])
+                } else {
+                    let mut combined = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+                    if (index == 63) {
+                        // Square*stateRoot was done above; no extra point doubling.
+                        combined = mSpecial63(result, point, q, p)
+                    } else {
+                        combined = mAdvance(result, point, q, p, digit)
+                    }
+                    for (let mut pointCell = 0; pointCell < 6; pointCell = pointCell + 1) {
+                        nextPoints[offset + pointCell] = combined[pointCell]
+                    }
+                    for (let mut resultCell = 0; resultCell < 12; resultCell = resultCell + 1) {
+                        result[resultCell] = combined[resultCell + 6]
+                    }
+                }
+            }
+        }
+        return [nextPoints[0], nextPoints[1], nextPoints[2], nextPoints[3], nextPoints[4], nextPoints[5],
+            nextPoints[6], nextPoints[7], nextPoints[8], nextPoints[9], nextPoints[10], nextPoints[11],
+            nextPoints[12], nextPoints[13], nextPoints[14], nextPoints[15], nextPoints[16], nextPoints[17],
+            result[0], result[1], result[2], result[3], result[4], result[5],
+            result[6], result[7], result[8], result[9], result[10], result[11]]
+    }
+
+    @using(updateFields = true, checkExternalCaller = false)
+    pub fn advance(expectedStatement: ByteVec, expectedCursor: U256) -> U256 {
+        fpCheckParameters()
+        assert!(stateStatus == 1, STAGED_WRONG_PHASE)
+        assert!(expectedStatement == stateStatementId, STAGED_WRONG_STATEMENT)
+        assert!(expectedCursor == stateCursor, STAGED_WRONG_CURSOR)
+        assert!(stateCursor > 0 && stateCursor <= 65, STAGED_WRONG_CURSOR)
+        let mut remaining = stateCursor
+        let mut nextPoints = statePoints
+        let mut nextAccumulator = stateAccumulator
+        for (let mut rounds = 0; rounds < STAGED_DIGITS_PER_ADVANCE && remaining > 0; rounds = rounds + 1) {
+            let next = stagedIndex(remaining - 1, nextPoints, nextAccumulator)
+            for (let mut pointCell = 0; pointCell < 18; pointCell = pointCell + 1) {
+                nextPoints[pointCell] = next[pointCell]
+            }
+            for (let mut resultCell = 0; resultCell < 12; resultCell = resultCell + 1) {
+                nextAccumulator[resultCell] = next[resultCell + 18]
+            }
+            remaining = remaining - 1
+        }
+        statePoints = nextPoints
+        stateAccumulator = nextAccumulator
+        stateCursor = remaining
+        if (remaining == 0) {
+            stateStatus = 2
+        }
+        return remaining
+    }
+
+    @using(updateFields = true, checkExternalCaller = false)
+    pub fn finish(expectedStatement: ByteVec) -> ByteVec {
+        fpCheckParameters()
+        assert!(stateStatus == 2, STAGED_WRONG_PHASE)
+        assert!(expectedStatement == stateStatementId, STAGED_WRONG_STATEMENT)
+        assert!(stateCursor == 0, STAGED_WRONG_CURSOR)
+        let mut result = stateAccumulator
+        for (let mut k = 0; k < 3; k = k + 1) {
+            let offset = 6 * k
+            if (stagedPairActive([statePairs[offset], statePairs[offset + 1], statePairs[offset + 2],
+                statePairs[offset + 3], statePairs[offset + 4], statePairs[offset + 5]])) {
+                result = mCorrect(result,
+                    [statePoints[offset], statePoints[offset + 1], statePoints[offset + 2],
+                     statePoints[offset + 3], statePoints[offset + 4], statePoints[offset + 5]],
+                    [statePairs[offset + 2], statePairs[offset + 3], statePairs[offset + 4], statePairs[offset + 5]],
+                    [statePairs[offset], statePairs[offset + 1]])
+            }
+        }
+        result = fp12Mul(result, fixedPairFactor())
+        result = fp12Mul(result, fp12Frobenius(stateRootInverse, 3))
+        result = fp12Mul(result, fp12Frobenius(stateRoot, 2))
+        result = fp12Mul(result, fp12Frobenius(stateRootInverse, 1))
+        let embeddedCorrection = [stateCorrection[0], stateCorrection[1], stateCorrection[2],
+            stateCorrection[3], stateCorrection[4], stateCorrection[5], 0, 0, 0, 0, 0, 0]
+        result = fp12Mul(result, embeddedCorrection)
+        let mut isOne = result[0] == 1
+        for (let mut i = 1; i < 12; i = i + 1) {
+            isOne = isOne && result[i] == 0
+        }
+        assert!(isOne, RESIDUE_PAIRING_FAILED)
+        stateStatus = 3
+        return stateStatementId
+    }
+
+    // This view alone establishes no canonical creation origin or authority.
+    // A consumer must authenticate the instance before relying on these cells.
+    pub fn getAcceptance() -> (U256, ByteVec) {
+        fpCheckParameters()
+        return stateStatus, stateStatementId
+    }
+}

@@ -1,0 +1,42 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright 2024 RISC Zero, Inc. (inherited receipt wrapper/key semantics).
+// Original GPL wrapper and Apache receipt encoding notices are retained in
+// receipt_claims.ral and verification_key.ral; arithmetic/residue components
+// retain their separate Apache-2.0 provenance. This composition is supplied
+// without warranty under GNU GPL version 3 or, optionally, any later version.
+// https://www.gnu.org/licenses/gpl-3.0.html
+//
+// Versioned transport adds untrusted residue auxiliary data to the unchanged
+// historical RISC Zero proof, key, controls, image and journal statement.
+// Auxiliary v1 is #01 followed by eighteen canonical 32-byte BE Fp words:
+// twelve root-inverse cells in the accepted Fp12 tower order, then six Fp6
+// correction cells. The target computes all pairing operands and verifies
+// the residue equation itself. No caller-supplied Miller value or Boolean.
+
+Contract Risc0ResidueReceiptVerifier(fpModulus: U256) extends Risc0ReceiptClaims(fpModulus),
+    Bn254ResidueMiller(fpModulus) {
+    const RESIDUE_INVALID_LENGTH = 1430
+    const RESIDUE_INVALID_VERSION = 1431
+
+    fn receiptDecodeAuxiliary(auxiliary: ByteVec) -> [U256; 18] {
+        let mut words = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        for (let mut i = 0; i < 18; i = i + 1) {
+            let offset = 1 + 32 * i
+            words[i] = u256From32Byte!(byteVecSlice!(auxiliary, offset, offset + 32))
+        }
+        return words
+    }
+
+    pub fn verify(seal: ByteVec, imageId: ByteVec, journalDigest: ByteVec,
+        auxiliary: ByteVec) -> [U256; 12] {
+        fpCheckParameters()
+        assert!(size!(auxiliary) == 577, RESIDUE_INVALID_LENGTH)
+        assert!(byteVecSlice!(auxiliary, 0, 1) == #01, RESIDUE_INVALID_VERSION)
+        let pairs = receiptPairs(seal, imageId, journalDigest)
+        let witness = receiptDecodeAuxiliary(auxiliary)
+        return pairingResidue4(pairs,
+            [witness[0], witness[1], witness[2], witness[3], witness[4], witness[5],
+             witness[6], witness[7], witness[8], witness[9], witness[10], witness[11]],
+            [witness[12], witness[13], witness[14], witness[15], witness[16], witness[17]])
+    }
+}

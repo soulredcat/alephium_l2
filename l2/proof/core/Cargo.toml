@@ -1,0 +1,16 @@
+[package]
+name = "alephium-l2-transition-core"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+revm.workspace = true
+alloy-consensus.workspace = true
+alloy-eips.workspace = true
+alloy-primitives.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+hex.workspace = true

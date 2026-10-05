@@ -1,3 +1,7 @@
 * text=auto eol=lf
 # Hash-pinned fixtures and their source/license inventory must retain exact bytes.
 l2/node/fixtures/** -text
+l2/verifier-tool/fixtures/** -text
+l2/contracts/alephium/verifier/** -text
+# The verifier certifies this producer source by an exact source hash.
+l2/verifier-tool/src/ordinary_miller.rs -text

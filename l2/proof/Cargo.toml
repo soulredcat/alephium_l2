@@ -1,0 +1,26 @@
+[workspace]
+resolver = "3"
+members = ["core", "guest", "host"]
+
+[workspace.package]
+edition = "2024"
+publish = false
+rust-version = "1.94.1"
+
+[workspace.dependencies]
+alephium-l2-transition-core = { path = "core" }
+revm = { version = "=43.0.3", default-features = false, features = ["std", "portable"] }
+alloy-consensus = { version = "=2.5.0", features = ["k256"] }
+alloy-eips = "=2.5.0"
+alloy-primitives = { version = "=1.6.0", features = ["serde"] }
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.151"
+sha2 = "=0.10.9"
+hex = "=0.4.3"
+risc0-zkvm = { git = "https://github.com/risc0/risc0", rev = "14b5d588dd01cf4f7ba804d8bb0a61264e6ae2c6", default-features = false }
+risc0-binfmt = { git = "https://github.com/risc0/risc0", rev = "14b5d588dd01cf4f7ba804d8bb0a61264e6ae2c6", default-features = false, features = ["std"] }
+risc0-zkos-v1compat = { git = "https://github.com/risc0/risc0", rev = "14b5d588dd01cf4f7ba804d8bb0a61264e6ae2c6", default-features = false }
+
+[profile.release]
+overflow-checks = true
+panic = "abort"
