@@ -1,0 +1,50 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright 2021 0KIMS association (snarkJS-generated verification key).
+// Derived public alpha/beta values retain verification_key.ral GPL provenance.
+// This translation is free software under GNU GPL version 3 or (at your
+// option) any later version, without warranty. License text:
+// https://www.gnu.org/licenses/gpl-3.0.html
+// Ordinary raw Miller mathematics retains its separate Apache-2.0 notices
+// in ordinary_miller.rs and miller_engine.ral (Gnark Crypto pinned revision).
+// Exactly the original fixed slot 1, with no normalization/final exponent.
+// Tower order: C0.B0.A0,A1; C0.B1.A0,A1; C0.B2.A0,A1;
+// C1.B0.A0,A1; C1.B1.A0,A1; C1.B2.A0,A1.
+// The mandatory host certificate binds public key, raw producer and all words.
+// Public callers still admit all four logical pairs and check fp parameters.
+
+Abstract Contract Risc0FixedPair(fpModulus: U256) extends Risc0VerificationKey(fpModulus),
+    Bn254Fp12(fpModulus) {
+    const FIXED_PAIR_MISMATCH = 1440
+    const FIXED_PAIR_FACTOR_C0_B0_A0 = 7342864571187117063526572082046511325619382919384354958591042218818962302339
+    const FIXED_PAIR_FACTOR_C0_B0_A1 = 447714658441942041927432024618090362857669015243189413848551544010342744840
+    const FIXED_PAIR_FACTOR_C0_B1_A0 = 4941335988397217443901527226528967071623443166981268359191343088808327390559
+    const FIXED_PAIR_FACTOR_C0_B1_A1 = 4300260685416774330395577469429414334723710875139019811003980050358346675228
+    const FIXED_PAIR_FACTOR_C0_B2_A0 = 21172383038525686214244326907801092769143202779201755867135273588869059984828
+    const FIXED_PAIR_FACTOR_C0_B2_A1 = 6309168114594273766278678098777355083721920756873543322172960734029096130620
+    const FIXED_PAIR_FACTOR_C1_B0_A0 = 251994550906038536484386387130424558212794898890766386722110393762903167169
+    const FIXED_PAIR_FACTOR_C1_B0_A1 = 18372775470911385888915133749399954707661031317419245543350948033025728062688
+    const FIXED_PAIR_FACTOR_C1_B1_A0 = 20393315781474493173279836033661101339372249308563199833052565212425786219855
+    const FIXED_PAIR_FACTOR_C1_B1_A1 = 5875221396226855369080976101240119534879255582394026363304490598178765504890
+    const FIXED_PAIR_FACTOR_C1_B2_A0 = 10108372161514504137982476208680977773136022143101430421488675441202405812820
+    const FIXED_PAIR_FACTOR_C1_B2_A1 = 17485712993691008051064287300448075623373429171709920350604510159076862056713
+
+    // Guard the original six slot-1 words before skipping its runtime lines.
+    fn fixedPairGuard(pairs: [U256; 24]) -> () {
+        let alpha = vkAlpha()
+        let beta = vkBeta()
+        assert!(pairs[6] == alpha[0] && pairs[7] == alpha[1]
+            && pairs[8] == beta[0] && pairs[9] == beta[1]
+            && pairs[10] == beta[2] && pairs[11] == beta[3], FIXED_PAIR_MISMATCH)
+    }
+
+    // Multiply once after all three runtime pairs' ordinary Q corrections.
+    // This is a complete raw single-pair factor, never a table or VM input.
+    fn fixedPairFactor() -> [U256; 12] {
+        return [FIXED_PAIR_FACTOR_C0_B0_A0, FIXED_PAIR_FACTOR_C0_B0_A1,
+            FIXED_PAIR_FACTOR_C0_B1_A0, FIXED_PAIR_FACTOR_C0_B1_A1,
+            FIXED_PAIR_FACTOR_C0_B2_A0, FIXED_PAIR_FACTOR_C0_B2_A1,
+            FIXED_PAIR_FACTOR_C1_B0_A0, FIXED_PAIR_FACTOR_C1_B0_A1,
+            FIXED_PAIR_FACTOR_C1_B1_A0, FIXED_PAIR_FACTOR_C1_B1_A1,
+            FIXED_PAIR_FACTOR_C1_B2_A0, FIXED_PAIR_FACTOR_C1_B2_A1]
+    }
+}

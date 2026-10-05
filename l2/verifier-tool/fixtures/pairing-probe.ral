@@ -1,0 +1,54 @@
+// SPDX-License-Identifier: Apache-2.0
+// Development-only C10 arithmetic probe: one immutable modulus, no asset authority.
+// Wire layout: C0.B0(real,imag), B1, B2; then the same six cells for C1.
+// The b input packs two 034 lines: c0/c3/c4, then d0/d3/d4.
+// Op 0 measures the entire add/sub/square/neg/mul/sparse034 flow.
+// Op 1 returns the ten-cell sparse product prefix with two zero pads.
+// Op 2 forms that prefix before multiplying a by the resulting 01234 value.
+// Op 3 establishes the cyclotomic precondition on target before fixed Expt.
+// Ops 4/5 call the same complete normalized final exponentiation function.
+// No failure, including VM out-of-gas, is accepted as a positive result.
+
+Contract Bn254PairingArithmeticProbe(fpModulus: U256) extends Bn254Exponent(fpModulus), Bn254Sparse(fpModulus),
+    Bn254Fp12Additive(fpModulus) {
+    pub fn probe(
+        op: U256,
+        a0: U256, a1: U256, a2: U256, a3: U256, a4: U256, a5: U256,
+        a6: U256, a7: U256, a8: U256, a9: U256, a10: U256, a11: U256,
+        b0: U256, b1: U256, b2: U256, b3: U256, b4: U256, b5: U256,
+        b6: U256, b7: U256, b8: U256, b9: U256, b10: U256, b11: U256
+    ) -> [U256; 12] {
+        fpCheckParameters()
+        assert!(op < 6, 1099)
+        let a = [a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11]
+        let b = [b0, b1, b2, b3, b4, b5, b6, b7, b8, b9, b10, b11]
+        if (op == 0) {
+            let differenceSquare = fp12Square(fp12Sub(a, b))
+            let negativeSum = fp12Neg(fp12Add(a, b))
+            let operand = fp12Mul(differenceSquare, negativeSum)
+            return fp12MulBy034(operand, [b[0], b[1]], [b[2], b[3]], [b[4], b[5]])
+        } else if (op == 1) {
+            let prefix = probeSparsePrefix(b)
+            return [prefix[0], prefix[1], prefix[2], prefix[3], prefix[4], prefix[5],
+                prefix[6], prefix[7], prefix[8], prefix[9], 0, 0]
+        } else if (op == 2) {
+            return fp12MulBy01234(a, probeSparsePrefix(b))
+        } else if (op == 3) {
+            // a^(p^6-1), then exponent p^2+1: establish the group precondition
+            // on target. General independent Arkworks pow computes the oracle.
+            let unitary = fp12Mul(fp12Conjugate(a), fp12Inv(a))
+            let cyclotomic = fp12Mul(fp12Frobenius(unitary, 2), unitary)
+            return fp12Expt(cyclotomic)
+        } else {
+            // The a=one corpus case reaches the actual easy-result-one branch;
+            // there is no shortcut in this wrapper and zero remains rejected.
+            return fp12FinalExponentiation(a)
+        }
+    }
+
+    fn probeSparsePrefix(b: [U256; 12]) -> [U256; 10] {
+        return fp12Mul034By034(
+            [b[0], b[1]], [b[2], b[3]], [b[4], b[5]],
+            [b[6], b[7]], [b[8], b[9]], [b[10], b[11]])
+    }
+}

@@ -1,0 +1,123 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2020 ConsenSys AG (Gnark Crypto reference).
+// Licensed under the Apache License, Version 2.0; retained text in this directory.
+// Streaming MillerLoop translated from Gnark Crypto revision
+// 703a260c2f991d01e245adf53d20f76af4210c5f, ecc/bn254/pairing.go.
+// https://github.com/Consensys/gnark-crypto/blob/703a260c2f991d01e245adf53d20f76af4210c5f/ecc/bn254/pairing.go
+// LoopCounter is ecc.NafDecomposition(29793968203157093288), bn254.go init.
+// Homogeneous point [X.real,X.u,Y.real,Y.u,Z.real,Z.u], x=X/Z, y=Y/Z.
+// Never pass these accumulators to the existing Jacobian G2 operations.
+// Lines [r0.real,r0.u,r1.real,r1.u,r2.real,r2.u] evaluate into slots 034.
+// Four input pairs: [G1.x,G1.y,G2.x.real,G2.x.u,G2.y.real,G2.y.u].
+// Its private caller must establish complete admission before invocation,
+// including Q when P is infinity. The generic wrapper checks every unique raw
+// Q; the fixed receipt checks proof B and uses certified immutable VK literals.
+// No precomputed lines, persistent cache or caller admission flag exists.
+
+Abstract Contract Bn254MillerEngine(fpModulus: U256) extends Bn254MillerCore(fpModulus) {
+    // i=64 first active line assigns res; second active line uses 034*034.
+    // Subsequent active lines use MulBy034, preserving filtered source order.
+    fn mInitialAppend(a: [U256; 12], line: [U256; 6], ordinal: U256) -> [U256; 12] {
+        if (ordinal == 0) {
+            return [line[0], line[1], 0, 0, 0, 0, line[2], line[3], line[4], line[5], 0, 0]
+        } else if (ordinal == 1) {
+            let product = fp12Mul034By034([line[0], line[1]], [line[2], line[3]],
+                [line[4], line[5]], [a[0], a[1]], [a[6], a[7]], [a[8], a[9]])
+            return [product[0], product[1], product[2], product[3], product[4], product[5],
+                product[6], product[7], product[8], product[9], 0, 0]
+        } else {
+            return fp12MulBy034(a, [line[0], line[1]], [line[2], line[3]], [line[4], line[5]])
+        }
+    }
+
+    // PRECONDITION: every pair has complete canonical/curve/subgroup admission.
+    // Generic raw-Q entry checks on target; fixed receipt entry checks proof
+    // inputs on target and uses compile-certified exact embedded constants.
+    // Private only: no caller flag or public bypass can reach this method.
+    fn millerLoopAdmitted4(pairs: [U256; 24]) -> [U256; 12] {
+        let mut active = [false, false, false, false]
+        let mut points = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        for (let mut k = 0; k < 4; k = k + 1) {
+            let offset = 6 * k
+            let pInfinity = pairs[offset] == 0 && pairs[offset + 1] == 0
+            let qInfinity = pairs[offset + 2] == 0 && pairs[offset + 3] == 0
+                && pairs[offset + 4] == 0 && pairs[offset + 5] == 0
+            active[k] = !pInfinity && !qInfinity
+            if (active[k]) {
+                points[offset] = pairs[offset + 2]
+                points[offset + 1] = pairs[offset + 3]
+                points[offset + 2] = pairs[offset + 4]
+                points[offset + 3] = pairs[offset + 5]
+                points[offset + 4] = 1
+            }
+        }
+        let mut result = [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        let mut ordinal = 0
+        // i=64: skip square(1); first/second active lines use special products.
+        for (let mut k = 0; k < 4; k = k + 1) {
+            if (active[k]) {
+                let offset = 6 * k
+                let step = mDouble([points[offset], points[offset + 1], points[offset + 2],
+                    points[offset + 3], points[offset + 4], points[offset + 5]])
+                for (let mut component = 0; component < 6; component = component + 1) {
+                    points[offset + component] = step[component]
+                }
+                let line = mEvaluate([step[6], step[7], step[8], step[9], step[10], step[11]],
+                    [pairs[offset], pairs[offset + 1]])
+                result = mInitialAppend(result, line, ordinal)
+                ordinal = ordinal + 1
+            }
+        }
+        // All-infinity input contributes one after the caller's complete admission.
+        if (ordinal == 0) {
+            return result
+        }
+        // i=63 source replacement: one shared square, then special mixed step.
+        result = fp12Square(result)
+        for (let mut k = 0; k < 4; k = k + 1) {
+            if (active[k]) {
+                let offset = 6 * k
+                let combined = mSpecial63(result,
+                    [points[offset], points[offset + 1], points[offset + 2], points[offset + 3], points[offset + 4], points[offset + 5]],
+                    [pairs[offset + 2], pairs[offset + 3], pairs[offset + 4], pairs[offset + 5]], [pairs[offset], pairs[offset + 1]])
+                for (let mut component = 0; component < 6; component = component + 1) {
+                    points[offset + component] = combined[component]
+                }
+                for (let mut component = 0; component < 12; component = component + 1) {
+                    result[component] = combined[component + 6]
+                }
+            }
+        }
+        // Exactly 63 remaining digits: i=62 down to i=0, inclusive.
+        for (let mut remaining = 63; remaining > 0; remaining = remaining - 1) {
+            let index = remaining - 1
+            let digit = ((MILLER_POSITIVE_DIGITS >> index) & 1) + 2 * ((MILLER_NEGATIVE_DIGITS >> index) & 1)
+            result = fp12Square(result)
+            for (let mut k = 0; k < 4; k = k + 1) {
+                if (active[k]) {
+                    let offset = 6 * k
+                    let combined = mAdvance(result,
+                        [points[offset], points[offset + 1], points[offset + 2], points[offset + 3], points[offset + 4], points[offset + 5]],
+                        [pairs[offset + 2], pairs[offset + 3], pairs[offset + 4], pairs[offset + 5]], [pairs[offset], pairs[offset + 1]], digit)
+                    for (let mut component = 0; component < 6; component = component + 1) {
+                        points[offset + component] = combined[component]
+                    }
+                    for (let mut component = 0; component < 12; component = component + 1) {
+                        result[component] = combined[component + 6]
+                    }
+                }
+            }
+        }
+        for (let mut k = 0; k < 4; k = k + 1) {
+            if (active[k]) {
+                let offset = 6 * k
+                result = mCorrect(result,
+                    [points[offset], points[offset + 1], points[offset + 2], points[offset + 3], points[offset + 4], points[offset + 5]],
+                    [pairs[offset + 2], pairs[offset + 3], pairs[offset + 4], pairs[offset + 5]], [pairs[offset], pairs[offset + 1]])
+            }
+        }
+        return result
+    }
+
+}

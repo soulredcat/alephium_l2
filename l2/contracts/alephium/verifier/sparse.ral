@@ -1,0 +1,148 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2020 Consensys Software Inc. (Gnark Crypto reference).
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//     https://www.apache.org/licenses/LICENSE-2.0
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// Sparse Fp12 formulas translated from Gnark Crypto revision
+// 703a260c2f991d01e245adf53d20f76af4210c5f:
+// ecc/bn254/internal/fptower/e12_pairing.go MulBy034, Mul034By034, MulBy01234.
+// https://github.com/Consensys/gnark-crypto/blob/703a260c2f991d01e245adf53d20f76af4210c5f/ecc/bn254/internal/fptower/e12_pairing.go
+// These are the sparse products reached by the selected ordinary MillerLoop.
+// Fp2 pair slots are [C0.B0,C0.B1,C0.B2,C1.B0,C1.B1,C1.B2].
+// A 034 element is (c0,0,0,c3,c4,0), never (c0,c3,0,0,c4,0).
+// The ten-cell 01234 prefix carries slots 0..4; slot 5 is implicitly zero.
+// All inputs are canonical, and value arguments/fresh temporaries preserve
+// upstream alias safety. These internal methods grant no external authority.
+
+Abstract Contract Bn254Sparse(fpModulus: U256) extends Bn254Fp12(fpModulus) {
+    // Upstream MulBy034: C0*c0, C1*(c3+c4*v), and their mixed product.
+    fn fp12MulBy034(
+        a: [U256; 12], c0: [U256; 2], c3: [U256; 2], c4: [U256; 2]
+    ) -> [U256; 12] {
+        fp12Validate(a)
+        fp2Validate([c0[0], c0[1]])
+        fp2Validate([c3[0], c3[1]])
+        fp2Validate([c4[0], c4[1]])
+        // Complete entry checks precede arithmetic. Native sums are canonical;
+        // keep all three checked Fp6 products and their original order.
+        let sumA = [
+            addModN!(a[0], a[6], fpModulus), addModN!(a[1], a[7], fpModulus),
+            addModN!(a[2], a[8], fpModulus), addModN!(a[3], a[9], fpModulus),
+            addModN!(a[4], a[10], fpModulus), addModN!(a[5], a[11], fpModulus)
+        ]
+        let sumC = [addModN!(c0[0], c3[0], fpModulus), addModN!(c0[1], c3[1], fpModulus)]
+        let product0 = fp6MulByFp2(
+            [a[0], a[1], a[2], a[3], a[4], a[5]], [c0[0], c0[1]]
+        )
+        let product1 = fp6Mul01(
+            [a[6], a[7], a[8], a[9], a[10], a[11]], [c3[0], c3[1]], [c4[0], c4[1]]
+        )
+        let mixed = fp6Mul01(
+            [sumA[0], sumA[1], sumA[2], sumA[3], sumA[4], sumA[5]],
+            [sumC[0], sumC[1]], [c4[0], c4[1]]
+        )
+        // C0=product0+v*product1, C1=mixed-product0-product1; v rotates
+        // (B0,B1,B2) to ((9+u)*B2,B0,B1). Checked products are canonical.
+        return [
+            addModN!(product0[0], addModN!(mulModN!(product1[4], 9, fpModulus),
+                fpModulus - product1[5], fpModulus), fpModulus),
+            addModN!(product0[1], addModN!(product1[4],
+                mulModN!(product1[5], 9, fpModulus), fpModulus), fpModulus),
+            addModN!(product0[2], product1[0], fpModulus),
+            addModN!(product0[3], product1[1], fpModulus),
+            addModN!(product0[4], product1[2], fpModulus),
+            addModN!(product0[5], product1[3], fpModulus),
+            addModN!(mixed[0], fpModulus - addModN!(product0[0], product1[0], fpModulus), fpModulus),
+            addModN!(mixed[1], fpModulus - addModN!(product0[1], product1[1], fpModulus), fpModulus),
+            addModN!(mixed[2], fpModulus - addModN!(product0[2], product1[2], fpModulus), fpModulus),
+            addModN!(mixed[3], fpModulus - addModN!(product0[3], product1[3], fpModulus), fpModulus),
+            addModN!(mixed[4], fpModulus - addModN!(product0[4], product1[4], fpModulus), fpModulus),
+            addModN!(mixed[5], fpModulus - addModN!(product0[5], product1[5], fpModulus), fpModulus)
+        ]
+    }
+
+    // Upstream Mul034By034 returns [z00,x3,x34,x03,x04]. The omitted
+    // C1.B2 pair is exactly zero, so this is a canonical 01234 prefix.
+    fn fp12Mul034By034(
+        c0: [U256; 2], c3: [U256; 2], c4: [U256; 2],
+        d0: [U256; 2], d3: [U256; 2], d4: [U256; 2]
+    ) -> [U256; 10] {
+        fp2Validate([c0[0], c0[1]])
+        fp2Validate([c3[0], c3[1]])
+        fp2Validate([c4[0], c4[1]])
+        fp2Validate([d0[0], d0[1]])
+        fp2Validate([d3[0], d3[1]])
+        fp2Validate([d4[0], d4[1]])
+        let x0 = fp2Mul(c0, d0)
+        let x3 = fp2Mul(c3, d3)
+        let x4 = fp2Mul(c4, d4)
+        let x04 = fp2ProductCross(
+            [d0[0], d0[1]], [d4[0], d4[1]], [c0[0], c0[1]],
+            [c4[0], c4[1]], [x0[0], x0[1]], [x4[0], x4[1]]
+        )
+        let x03 = fp2ProductCross(
+            [d0[0], d0[1]], [d3[0], d3[1]], [c0[0], c0[1]],
+            [c3[0], c3[1]], [x0[0], x0[1]], [x3[0], x3[1]]
+        )
+        let x34 = fp2ProductCross(
+            [d3[0], d3[1]], [d4[0], d4[1]], [c3[0], c3[1]],
+            [c4[0], c4[1]], [x3[0], x3[1]], [x4[0], x4[1]]
+        )
+        let z00 = fp2Add(fp2MulNonResidue([x4[0], x4[1]]), [x0[0], x0[1]])
+        return [z00[0], z00[1], x3[0], x3[1], x34[0], x34[1],
+            x03[0], x03[1], x04[0], x04[1]]
+    }
+
+    // Upstream MulBy01234: b contains all of C0 and C1.B0/C1.B1.
+    fn fp12MulBy01234(a: [U256; 12], b: [U256; 10]) -> [U256; 12] {
+        fp12Validate(a)
+        for (let mut i = 0; i < 10; i = i + 1) {
+            fpValidate(b[i])
+        }
+        // Complete entry checks precede native sums. The absent C1.B2 is zero.
+        let sumA = [
+            addModN!(a[0], a[6], fpModulus), addModN!(a[1], a[7], fpModulus),
+            addModN!(a[2], a[8], fpModulus), addModN!(a[3], a[9], fpModulus),
+            addModN!(a[4], a[10], fpModulus), addModN!(a[5], a[11], fpModulus)
+        ]
+        let sumB = [
+            addModN!(b[0], b[6], fpModulus), addModN!(b[1], b[7], fpModulus),
+            addModN!(b[2], b[8], fpModulus), addModN!(b[3], b[9], fpModulus), b[4], b[5]
+        ]
+        let mixed = fp6Mul(
+            [sumA[0], sumA[1], sumA[2], sumA[3], sumA[4], sumA[5]],
+            [sumB[0], sumB[1], sumB[2], sumB[3], sumB[4], sumB[5]]
+        )
+        let product0 = fp6Mul(
+            [a[0], a[1], a[2], a[3], a[4], a[5]], [b[0], b[1], b[2], b[3], b[4], b[5]]
+        )
+        let product1 = fp6Mul01(
+            [a[6], a[7], a[8], a[9], a[10], a[11]], [b[6], b[7]], [b[8], b[9]]
+        )
+        // Canonical native closure directly composes the same Fp12 product.
+        return [
+            addModN!(product0[0], addModN!(mulModN!(product1[4], 9, fpModulus),
+                fpModulus - product1[5], fpModulus), fpModulus),
+            addModN!(product0[1], addModN!(product1[4],
+                mulModN!(product1[5], 9, fpModulus), fpModulus), fpModulus),
+            addModN!(product0[2], product1[0], fpModulus),
+            addModN!(product0[3], product1[1], fpModulus),
+            addModN!(product0[4], product1[2], fpModulus),
+            addModN!(product0[5], product1[3], fpModulus),
+            addModN!(mixed[0], fpModulus - addModN!(product0[0], product1[0], fpModulus), fpModulus),
+            addModN!(mixed[1], fpModulus - addModN!(product0[1], product1[1], fpModulus), fpModulus),
+            addModN!(mixed[2], fpModulus - addModN!(product0[2], product1[2], fpModulus), fpModulus),
+            addModN!(mixed[3], fpModulus - addModN!(product0[3], product1[3], fpModulus), fpModulus),
+            addModN!(mixed[4], fpModulus - addModN!(product0[4], product1[4], fpModulus), fpModulus),
+            addModN!(mixed[5], fpModulus - addModN!(product0[5], product1[5], fpModulus), fpModulus)
+        ]
+    }
+}

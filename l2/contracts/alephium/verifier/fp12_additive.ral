@@ -1,0 +1,50 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2020 Consensys Software Inc. (Gnark Crypto reference).
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//     https://www.apache.org/licenses/LICENSE-2.0
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// Fp12 additive algebra translated from Gnark Crypto revision
+// 703a260c2f991d01e245adf53d20f76af4210c5f, ecc/bn254/internal/fptower/e12.go.
+// https://github.com/Consensys/gnark-crypto/blob/703a260c2f991d01e245adf53d20f76af4210c5f/ecc/bn254/internal/fptower/e12.go
+// The canonical twelve-cell layout and checked immutable modulus are inherited.
+// Arithmetic probes compose this API; the multiplicative pairing path does not.
+
+Abstract Contract Bn254Fp12Additive(fpModulus: U256) extends Bn254Fp12(fpModulus) {
+    fn fp12Add(a: [U256; 12], b: [U256; 12]) -> [U256; 12] {
+        fp12Validate(a)
+        fp12Validate(b)
+        let c0 = fp6Add([a[0], a[1], a[2], a[3], a[4], a[5]],
+            [b[0], b[1], b[2], b[3], b[4], b[5]])
+        let c1 = fp6Add([a[6], a[7], a[8], a[9], a[10], a[11]],
+            [b[6], b[7], b[8], b[9], b[10], b[11]])
+        return [c0[0], c0[1], c0[2], c0[3], c0[4], c0[5],
+            c1[0], c1[1], c1[2], c1[3], c1[4], c1[5]]
+    }
+
+    fn fp12Sub(a: [U256; 12], b: [U256; 12]) -> [U256; 12] {
+        fp12Validate(a)
+        fp12Validate(b)
+        let c0 = fp6Sub([a[0], a[1], a[2], a[3], a[4], a[5]],
+            [b[0], b[1], b[2], b[3], b[4], b[5]])
+        let c1 = fp6Sub([a[6], a[7], a[8], a[9], a[10], a[11]],
+            [b[6], b[7], b[8], b[9], b[10], b[11]])
+        return [c0[0], c0[1], c0[2], c0[3], c0[4], c0[5],
+            c1[0], c1[1], c1[2], c1[3], c1[4], c1[5]]
+    }
+
+    fn fp12Neg(a: [U256; 12]) -> [U256; 12] {
+        fp12Validate(a)
+        let c0 = fp6Neg([a[0], a[1], a[2], a[3], a[4], a[5]])
+        let c1 = fp6Neg([a[6], a[7], a[8], a[9], a[10], a[11]])
+        return [c0[0], c0[1], c0[2], c0[3], c0[4], c0[5],
+            c1[0], c1[1], c1[2], c1[3], c1[4], c1[5]]
+    }
+}

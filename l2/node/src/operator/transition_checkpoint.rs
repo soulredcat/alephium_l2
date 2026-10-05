@@ -2,11 +2,15 @@
 use super::{
     files,
     replay::{MAX_REPLAY_BLOCKS, verify_replay_at},
-    transition::{JsonBuffer, preflight, publish_private},
+    transition::{preflight, publish_private_binary},
     transition_batch::{validate_block, validated_input},
     transition_types::{
         CheckpointTransitionBundle, CheckpointTransitionReport, MAX_TRANSITION_BLOCKS,
         SettlementDomain, TransitionBlock,
+    },
+    transition_wire::{
+        MAX_CHECKPOINT_WIRE_BYTES, checkpoint_transition_base_bytes,
+        checkpoint_transition_block_bytes, encode_checkpoint_transition,
     },
 };
 use crate::{protocol::Genesis, storage::Store};
@@ -72,13 +76,17 @@ pub fn prepare_transition_checkpoint(
     {
         return Err("Captured checkpoint identity or boundary differs".into());
     }
-    let checkpoint_sha256 = B256::from_slice(&Sha256::digest(checkpoint.encode()?));
+    let checkpoint_bytes = checkpoint.encode()?;
+    let checkpoint_sha256 = B256::from_slice(&Sha256::digest(&checkpoint_bytes));
+    let mut encoded_bytes = checkpoint_transition_base_bytes(
+        "development/c5-v1",
+        &replay.execution_engine,
+        checkpoint_bytes.len(),
+    )?;
+    drop(checkpoint_bytes);
     let mut previous = checkpoint.head.clone();
     let mut hashes = BTreeSet::new();
     let mut blocks = Vec::new();
-    let mut bounded = JsonBuffer(Vec::new());
-    serde_json::to_writer(&mut bounded, &checkpoint)
-        .map_err(|_| "Checkpoint exceeds the bounded witness size")?;
     for height in batch_start..=replay.blocks {
         let block = source
             .replay_block(height)?
@@ -98,8 +106,12 @@ pub fn prepare_transition_checkpoint(
             context: block.context.into(),
             transactions,
         };
-        serde_json::to_writer(&mut bounded, &exported)
-            .map_err(|_| "Checkpoint suffix exceeds the bounded witness size")?;
+        encoded_bytes = encoded_bytes
+            .checked_add(checkpoint_transition_block_bytes(&exported)?)
+            .ok_or("Checkpoint suffix size overflow")?;
+        if encoded_bytes > MAX_CHECKPOINT_WIRE_BYTES {
+            return Err("Checkpoint suffix exceeds the bounded binary witness size".into());
+        }
         blocks.push(exported);
     }
     if previous != replay.head || blocks.is_empty() || blocks.len() as u64 > MAX_TRANSITION_BLOCKS {
@@ -115,11 +127,12 @@ pub fn prepare_transition_checkpoint(
         head: replay.head,
         expected_state_digest: replay.state_digest,
     };
-    let mut bytes = JsonBuffer(Vec::new());
-    serde_json::to_writer_pretty(&mut bytes, &bundle)
-        .map_err(|_| "Cannot encode checkpoint suffix within its bounded size")?;
-    let bundle_sha256 = B256::from_slice(&Sha256::digest(&bytes.0));
-    let bundle_path = publish_private(&work, &bytes.0)?;
+    let bytes = encode_checkpoint_transition(&bundle)?;
+    if bytes.len() != encoded_bytes {
+        return Err("Checkpoint binary size differs from collected suffix".into());
+    }
+    let bundle_sha256 = B256::from_slice(&Sha256::digest(&bytes));
+    let bundle_path = publish_private_binary(&work, &bytes)?;
     let transaction_hashes: Vec<_> = bundle
         .blocks
         .iter()
@@ -144,7 +157,7 @@ pub fn prepare_transition_checkpoint(
         work_directory: work,
         bundle_path,
         bundle_sha256,
-        bundle_bytes: bytes.0.len(),
+        bundle_bytes: bytes.len(),
         blocks: bundle.blocks.len() as u64,
         replayed_blocks: replay.blocks,
         semantic_replay_verified: true,

@@ -206,8 +206,21 @@ fn validated_bundle(
 }
 
 pub(super) fn publish_private(work: &Path, bytes: &[u8]) -> Result<PathBuf, String> {
-    let partial = work.join("transition.partial");
-    let complete = work.join("transition.json");
+    publish_private_named(work, bytes, "transition.json")
+}
+
+pub(super) fn publish_private_binary(work: &Path, bytes: &[u8]) -> Result<PathBuf, String> {
+    publish_private_named(work, bytes, "transition.bin")
+}
+
+fn publish_private_named(work: &Path, bytes: &[u8], name: &'static str) -> Result<PathBuf, String> {
+    let partial_name = match name {
+        "transition.json" => "transition.partial",
+        "transition.bin" => "transition-binary.partial",
+        _ => return Err("Unsupported private transition artifact name".into()),
+    };
+    let partial = work.join(partial_name);
+    let complete = work.join(name);
     if complete.try_exists().map_err(files::io_error)? {
         return Err("Transition bundle already exists; overwrite is forbidden".into());
     }

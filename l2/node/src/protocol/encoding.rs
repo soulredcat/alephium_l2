@@ -1,9 +1,9 @@
 use alloy_primitives::{Address, B256, U256};
 
-pub(super) const MAX_RECORD: usize = 16 * 1024 * 1024;
+pub(crate) const MAX_RECORD: usize = 16 * 1024 * 1024;
 
 #[derive(Default)]
-pub(super) struct Encoder(pub Vec<u8>);
+pub(crate) struct Encoder(pub Vec<u8>);
 
 impl Encoder {
     pub fn byte(&mut self, value: u8) {
@@ -50,7 +50,7 @@ impl Encoder {
     }
 }
 
-pub(super) struct Decoder<'a> {
+pub(crate) struct Decoder<'a> {
     data: &'a [u8],
     offset: usize,
 }
@@ -132,14 +132,14 @@ impl<'a> Decoder<'a> {
     }
 }
 
-pub(super) fn key(prefix: u8, suffix: &[u8]) -> Vec<u8> {
+pub(crate) fn key(prefix: u8, suffix: &[u8]) -> Vec<u8> {
     let mut key = Vec::with_capacity(suffix.len() + 1);
     key.push(prefix);
     key.extend(suffix);
     key
 }
 
-pub(super) fn slot_key(address: Address, epoch: u64, slot: U256) -> Vec<u8> {
+pub(crate) fn slot_key(address: Address, epoch: u64, slot: U256) -> Vec<u8> {
     let mut out = key(0x11, address.as_slice());
     out.extend(epoch.to_be_bytes());
     out.extend(slot.to_be_bytes::<32>());

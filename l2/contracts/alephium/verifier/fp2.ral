@@ -1,0 +1,135 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2020 Consensys Software Inc. and ConsenSys AG (Gnark references).
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//     https://www.apache.org/licenses/LICENSE-2.0
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// Fp2 algebra translated from Gnark Crypto revision
+// 703a260c2f991d01e245adf53d20f76af4210c5f, ecc/bn254/internal/fptower/e2.go
+// and e2_bn254.go (mulGenericE2, squareGenericE2 and Inverse), with
+// e2_bn254_fallback.go for forward multiplication by 9+u.
+// https://github.com/Consensys/gnark-crypto/blob/703a260c2f991d01e245adf53d20f76af4210c5f/ecc/bn254/internal/fptower/e2.go
+// https://github.com/Consensys/gnark-crypto/blob/703a260c2f991d01e245adf53d20f76af4210c5f/ecc/bn254/internal/fptower/e2_bn254.go
+// https://github.com/Consensys/gnark-crypto/blob/703a260c2f991d01e245adf53d20f76af4210c5f/ecc/bn254/internal/fptower/e2_bn254_fallback.go
+// Layout [A0, A1] means A0 + A1*u, where u^2 = -1. Both values are canonical
+// Fp U256s. This is internal coefficient order, not Ethereum's wire order.
+// Value arguments and fresh temporaries preserve upstream alias-safe formulas.
+// Methods using native operations validate all input coefficients first.
+// Native modular results are canonical, so repeated scalar checks are redundant.
+// For canonical x, p-x is safe and may equal p; addModN still returns [0,p).
+// Functional field evidence and limits are recorded in the adjacent README.
+
+Abstract Contract Bn254Fp2(fpModulus: U256) extends Bn254Fp(fpModulus) {
+    const FP2_ZERO_INVERSE = 1011
+
+    @inline fn fp2Validate(a: [U256; 2]) -> () {
+        assert!(a[0] < fpModulus, FP_INVALID_ELEMENT)
+        assert!(a[1] < fpModulus, FP_INVALID_ELEMENT)
+    }
+
+    @inline fn fp2Add(a: [U256; 2], b: [U256; 2]) -> [U256; 2] {
+        fp2Validate([a[0], a[1]])
+        fp2Validate([b[0], b[1]])
+        return [addModN!(a[0], b[0], fpModulus), addModN!(a[1], b[1], fpModulus)]
+    }
+
+    fn fp2Sub(a: [U256; 2], b: [U256; 2]) -> [U256; 2] {
+        return fp2SubInline([a[0], a[1]], [b[0], b[1]])
+    }
+
+    @inline fn fp2SubInline(a: [U256; 2], b: [U256; 2]) -> [U256; 2] {
+        fp2Validate([a[0], a[1]])
+        fp2Validate([b[0], b[1]])
+        return [
+            addModN!(a[0], fpModulus - b[0], fpModulus),
+            addModN!(a[1], fpModulus - b[1], fpModulus)
+        ]
+    }
+
+    @inline fn fp2Neg(a: [U256; 2]) -> [U256; 2] {
+        fp2Validate([a[0], a[1]])
+        return [
+            addModN!(0, fpModulus - a[0], fpModulus),
+            addModN!(0, fpModulus - a[1], fpModulus)
+        ]
+    }
+
+    // Karatsuba: (a0*b0-a1*b1, (a0+a1)*(b0+b1)-a0*b0-a1*b1).
+    fn fp2Mul(a: [U256; 2], b: [U256; 2]) -> [U256; 2] {
+        return fp2MulInline([a[0], a[1]], [b[0], b[1]])
+    }
+
+    @inline fn fp2MulInline(a: [U256; 2], b: [U256; 2]) -> [U256; 2] {
+        fp2Validate([a[0], a[1]])
+        fp2Validate([b[0], b[1]])
+        let sumA = addModN!(a[0], a[1], fpModulus)
+        let sumB = addModN!(b[0], b[1], fpModulus)
+        let sumProduct = mulModN!(sumA, sumB, fpModulus)
+        let realProduct = mulModN!(a[0], b[0], fpModulus)
+        let imaginaryProduct = mulModN!(a[1], b[1], fpModulus)
+        let real = addModN!(realProduct, fpModulus - imaginaryProduct, fpModulus)
+        let imaginary = addModN!(
+            addModN!(sumProduct, fpModulus - realProduct, fpModulus),
+            fpModulus - imaginaryProduct, fpModulus
+        )
+        return [real, imaginary]
+    }
+
+    // Keep this checked cross product out of line to bound tower caller locals.
+    // The precomputed diagonal products retain the upstream Karatsuba algebra.
+    fn fp2ProductCross(
+        a: [U256; 2], b: [U256; 2], c: [U256; 2], d: [U256; 2],
+        product0: [U256; 2], product1: [U256; 2]
+    ) -> [U256; 2] {
+        let sumA = fp2Add([a[0], a[1]], [b[0], b[1]])
+        let sumB = fp2Add([c[0], c[1]], [d[0], d[1]])
+        let product = fp2MulInline([sumA[0], sumA[1]], [sumB[0], sumB[1]])
+        return fp2SubInline(
+            fp2SubInline([product[0], product[1]], [product0[0], product0[1]]),
+            [product1[0], product1[1]]
+        )
+    }
+
+    // Complex square: ((a0+a1)*(a0-a1), 2*a0*a1).
+    @inline fn fp2Square(a: [U256; 2]) -> [U256; 2] {
+        fp2Validate([a[0], a[1]])
+        let sum = addModN!(a[0], a[1], fpModulus)
+        let difference = addModN!(a[0], fpModulus - a[1], fpModulus)
+        let real = mulModN!(sum, difference, fpModulus)
+        let product = mulModN!(a[0], a[1], fpModulus)
+        let imaginary = addModN!(product, product, fpModulus)
+        return [real, imaginary]
+    }
+
+    // The norm is a0^2+a1^2 because u^2=-1; -1 is nonsquare for p=3 mod 4.
+    // A nonzero Fp2 element therefore has nonzero norm. fpInv also guards it.
+    fn fp2Inv(a: [U256; 2]) -> [U256; 2] {
+        fp2Validate([a[0], a[1]])
+        assert!(a[0] != 0 || a[1] != 0, FP2_ZERO_INVERSE)
+        let realSquare = mulModN!(a[0], a[0], fpModulus)
+        let imaginarySquare = mulModN!(a[1], a[1], fpModulus)
+        let norm = addModN!(realSquare, imaginarySquare, fpModulus)
+        let inverseNorm = fpInv(norm)
+        let real = mulModN!(a[0], inverseNorm, fpModulus)
+        let imaginary = addModN!(0, fpModulus - mulModN!(a[1], inverseNorm, fpModulus), fpModulus)
+        return [real, imaginary]
+    }
+
+    // Multiply by the Fp6 tower nonresidue 9+u: (9*a0-a1, a0+9*a1).
+    // Canonical 9 and 1 are used directly; no Montgomery literal is copied.
+    @inline fn fp2MulNonResidue(a: [U256; 2]) -> [U256; 2] {
+        fp2Validate([a[0], a[1]])
+        let nineReal = mulModN!(a[0], 9, fpModulus)
+        let nineImaginary = mulModN!(a[1], 9, fpModulus)
+        let real = addModN!(nineReal, fpModulus - a[1], fpModulus)
+        let imaginary = addModN!(a[0], nineImaginary, fpModulus)
+        return [real, imaginary]
+    }
+}

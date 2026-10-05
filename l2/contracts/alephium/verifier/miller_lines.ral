@@ -1,0 +1,238 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2020 ConsenSys AG (Gnark Crypto reference).
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//     https://www.apache.org/licenses/LICENSE-2.0
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// Ordinary Miller line formulas translated from Gnark Crypto revision
+// 703a260c2f991d01e245adf53d20f76af4210c5f, ecc/bn254/pairing.go:
+// g2Proj.doubleStep, addMixedStep and lineCompute.
+// https://github.com/Consensys/gnark-crypto/blob/703a260c2f991d01e245adf53d20f76af4210c5f/ecc/bn254/pairing.go
+// g2.go identifies these as homogeneous projective coordinates: x=X/Z,
+// y=Y/Z, hence Y^2*Z=X^3+b*Z^3. They are NOT the Jacobian coordinates
+// in g2.ral. Point layout is [X.real,X.u,Y.real,Y.u,Z.real,Z.u].
+// Affine layout is [x.real,x.u,y.real,y.u]; Fp2 is real+u_component*u.
+// Each point step returns point6 followed by [r0.real,r0.u,r1.real,r1.u,
+// r2.real,r2.u]. The caller evaluates c0=r0*P.y, c3=r1*P.x, c4=r2 for
+// MulBy034 in slots [C0.B0,C1.B0,C1.B1]. No line factors are normalized.
+// Ethereum's imaginary-first wire pairs must already have been decoded.
+//
+// PRECONDITION: points originate from validated non-infinity subgroup Q,
+// with Z=(1,0), then only these steps in the pinned ordinary loop schedule.
+// Its wrapper filters validated infinity pairs before calling this artifact.
+// All coefficients are checked before arithmetic. These formulas contain no
+// inversion and no source exceptional-point branch: do not normalize Z=0,
+// insert Jacobian branches or replace zero lines with a multiplicative one.
+// The final-exponent wrapper must reject a zero Miller result before inversion.
+// Explicit array copies bind inline Fp2 arguments; call expressions run once.
+
+Abstract Contract Bn254MillerLines(fpModulus: U256) extends Bn254Fp2(fpModulus) {
+    const MILLER_HALF = 10944121435919637611123202872628637544348155578648911831344518947322613104292
+    // Canonical 3/(9+u), matching curve-constants.json and g2.ral.
+    const MILLER_B_REAL = 19485874751759354771024239261021720505790618469301721065564631296452457478373
+    const MILLER_B_IMAGINARY = 266929791119991161246907387137283842545076965332900288569378510910307636690
+
+    fn mValidatePoint(q: [U256; 6]) -> () {
+        for (let mut i = 0; i < 6; i = i + 1) {
+            fpValidate(q[i])
+        }
+    }
+
+    fn mValidateAffine(aff: [U256; 4]) -> () {
+        for (let mut i = 0; i < 4; i = i + 1) {
+            fpValidate(aff[i])
+        }
+    }
+
+    // Upstream Halve is multiplication by the canonical field inverse of 2.
+    @inline fn mHalf(a: [U256; 2]) -> [U256; 2] {
+        fp2Validate([a[0], a[1]])
+        return [mulModN!(a[0], MILLER_HALF, fpModulus),
+            mulModN!(a[1], MILLER_HALF, fpModulus)]
+    }
+
+    // Own the Y/Z curvature terms out of line to bound nested inline locals.
+    // B=Y^2, C=Z^2; the result packs source F,G,I,K in that order.
+    fn mDoubleCurveTerms(b: [U256; 2], c: [U256; 2]) -> [U256; 8] {
+        fp2Validate([b[0], b[1]])
+        fp2Validate([c[0], c[1]])
+        let twiceC = [addModN!(c[0], c[0], fpModulus), addModN!(c[1], c[1], fpModulus)]
+        let d = [addModN!(twiceC[0], c[0], fpModulus), addModN!(twiceC[1], c[1], fpModulus)]
+        // E=D*(3/(9+u)), the canonical algebra of MulBybTwistCurveCoeff.
+        let eSumProduct = mulModN!(addModN!(d[0], d[1], fpModulus),
+            addModN!(MILLER_B_REAL, MILLER_B_IMAGINARY, fpModulus), fpModulus)
+        let eRealProduct = mulModN!(d[0], MILLER_B_REAL, fpModulus)
+        let eImaginaryProduct = mulModN!(d[1], MILLER_B_IMAGINARY, fpModulus)
+        let e = [
+            addModN!(eRealProduct, fpModulus - eImaginaryProduct, fpModulus),
+            addModN!(addModN!(eSumProduct, fpModulus - eRealProduct, fpModulus),
+                fpModulus - eImaginaryProduct, fpModulus)
+        ]
+        let twiceE = [addModN!(e[0], e[0], fpModulus), addModN!(e[1], e[1], fpModulus)]
+        let f = [addModN!(twiceE[0], e[0], fpModulus), addModN!(twiceE[1], e[1], fpModulus)]
+        let sumBF = [addModN!(b[0], f[0], fpModulus), addModN!(b[1], f[1], fpModulus)]
+        let g = mHalf([sumBF[0], sumBF[1]])
+        let i = [addModN!(e[0], fpModulus - b[0], fpModulus),
+            addModN!(e[1], fpModulus - b[1], fpModulus)]
+        let eeReal = mulModN!(addModN!(e[0], e[1], fpModulus),
+            addModN!(e[0], fpModulus - e[1], fpModulus), fpModulus)
+        let eeProduct = mulModN!(e[0], e[1], fpModulus)
+        let ee = [eeReal, addModN!(eeProduct, eeProduct, fpModulus)]
+        let twiceEE = [addModN!(ee[0], ee[0], fpModulus), addModN!(ee[1], ee[1], fpModulus)]
+        let k = [addModN!(twiceEE[0], ee[0], fpModulus), addModN!(twiceEE[1], ee[1], fpModulus)]
+        return [f[0], f[1], g[0], g[1], i[0], i[1], k[0], k[1]]
+    }
+
+    // A=X*Y/2, X'=(B-F)*A, Y'=G^2-K. The separate frame bounds locals
+    // while retaining checked inline arithmetic and the source operation order.
+    fn mDoublePointXY(
+        pointX: [U256; 2], pointY: [U256; 2], b: [U256; 2],
+        f: [U256; 2], g: [U256; 2], k: [U256; 2]
+    ) -> [U256; 4] {
+        fp2Validate([pointX[0], pointX[1]])
+        fp2Validate([pointY[0], pointY[1]])
+        fp2Validate([b[0], b[1]])
+        fp2Validate([f[0], f[1]])
+        fp2Validate([g[0], g[1]])
+        fp2Validate([k[0], k[1]])
+        let xySumProduct = mulModN!(addModN!(pointX[0], pointX[1], fpModulus),
+            addModN!(pointY[0], pointY[1], fpModulus), fpModulus)
+        let xyRealProduct = mulModN!(pointX[0], pointY[0], fpModulus)
+        let xyImaginaryProduct = mulModN!(pointX[1], pointY[1], fpModulus)
+        let productXY = [
+            addModN!(xyRealProduct, fpModulus - xyImaginaryProduct, fpModulus),
+            addModN!(addModN!(xySumProduct, fpModulus - xyRealProduct, fpModulus),
+                fpModulus - xyImaginaryProduct, fpModulus)
+        ]
+        let a = mHalf([productXY[0], productXY[1]])
+        let differenceBF = [addModN!(b[0], fpModulus - f[0], fpModulus),
+            addModN!(b[1], fpModulus - f[1], fpModulus)]
+        let xSumProduct = mulModN!(addModN!(differenceBF[0], differenceBF[1], fpModulus),
+            addModN!(a[0], a[1], fpModulus), fpModulus)
+        let xRealProduct = mulModN!(differenceBF[0], a[0], fpModulus)
+        let xImaginaryProduct = mulModN!(differenceBF[1], a[1], fpModulus)
+        let x = [
+            addModN!(xRealProduct, fpModulus - xImaginaryProduct, fpModulus),
+            addModN!(addModN!(xSumProduct, fpModulus - xRealProduct, fpModulus),
+                fpModulus - xImaginaryProduct, fpModulus)
+        ]
+        let gRealSquare = mulModN!(addModN!(g[0], g[1], fpModulus),
+            addModN!(g[0], fpModulus - g[1], fpModulus), fpModulus)
+        let gProduct = mulModN!(g[0], g[1], fpModulus)
+        let y = [addModN!(gRealSquare, fpModulus - k[0], fpModulus),
+            addModN!(addModN!(gProduct, gProduct, fpModulus), fpModulus - k[1], fpModulus)]
+        return [x[0], x[1], y[0], y[1]]
+    }
+
+    // doubleStep: keep the old q until every point/line result is formed.
+    fn mDouble(q: [U256; 6]) -> [U256; 12] {
+        mValidatePoint(q)
+        // Entry coefficients are canonical; native modular results remain so.
+        let bReal = mulModN!(addModN!(q[2], q[3], fpModulus),
+            addModN!(q[2], fpModulus - q[3], fpModulus), fpModulus)
+        let bProduct = mulModN!(q[2], q[3], fpModulus)
+        let b = [bReal, addModN!(bProduct, bProduct, fpModulus)]
+        let cReal = mulModN!(addModN!(q[4], q[5], fpModulus),
+            addModN!(q[4], fpModulus - q[5], fpModulus), fpModulus)
+        let cProduct = mulModN!(q[4], q[5], fpModulus)
+        let c = [cReal, addModN!(cProduct, cProduct, fpModulus)]
+        let terms = mDoubleCurveTerms(b, c)
+        let sumYZ = [addModN!(q[2], q[4], fpModulus), addModN!(q[3], q[5], fpModulus)]
+        let yzReal = mulModN!(addModN!(sumYZ[0], sumYZ[1], fpModulus),
+            addModN!(sumYZ[0], fpModulus - sumYZ[1], fpModulus), fpModulus)
+        let yzProduct = mulModN!(sumYZ[0], sumYZ[1], fpModulus)
+        let squareYZ = [yzReal, addModN!(yzProduct, yzProduct, fpModulus)]
+        let sumBC = [addModN!(b[0], c[0], fpModulus), addModN!(b[1], c[1], fpModulus)]
+        let h = [addModN!(squareYZ[0], fpModulus - sumBC[0], fpModulus),
+            addModN!(squareYZ[1], fpModulus - sumBC[1], fpModulus)]
+        let jReal = mulModN!(addModN!(q[0], q[1], fpModulus),
+            addModN!(q[0], fpModulus - q[1], fpModulus), fpModulus)
+        let jProduct = mulModN!(q[0], q[1], fpModulus)
+        let j = [jReal, addModN!(jProduct, jProduct, fpModulus)]
+        let xy = mDoublePointXY([q[0], q[1]], [q[2], q[3]], b,
+            [terms[0], terms[1]], [terms[2], terms[3]], [terms[6], terms[7]])
+        let zSumProduct = mulModN!(addModN!(b[0], b[1], fpModulus),
+            addModN!(h[0], h[1], fpModulus), fpModulus)
+        let zRealProduct = mulModN!(b[0], h[0], fpModulus)
+        let zImaginaryProduct = mulModN!(b[1], h[1], fpModulus)
+        let z = [
+            addModN!(zRealProduct, fpModulus - zImaginaryProduct, fpModulus),
+            addModN!(addModN!(zSumProduct, fpModulus - zRealProduct, fpModulus),
+                fpModulus - zImaginaryProduct, fpModulus)
+        ]
+        let r0 = [addModN!(0, fpModulus - h[0], fpModulus),
+            addModN!(0, fpModulus - h[1], fpModulus)]
+        let twiceJ = [addModN!(j[0], j[0], fpModulus), addModN!(j[1], j[1], fpModulus)]
+        let r1 = [addModN!(twiceJ[0], j[0], fpModulus), addModN!(twiceJ[1], j[1], fpModulus)]
+        return [xy[0], xy[1], xy[2], xy[3], z[0], z[1],
+            r0[0], r0[1], r1[0], r1[1], terms[4], terms[5]]
+    }
+
+    // Shared line intersection: pack O,L,J, with J=x_aff*O-y_aff*L.
+    // Validation owns the complete q/aff boundary before any arithmetic.
+    fn mMixedLineTerms(q: [U256; 6], aff: [U256; 4]) -> [U256; 6] {
+        mValidatePoint(q)
+        mValidateAffine(aff)
+        let y2z1 = fp2MulInline([aff[2], aff[3]], [q[4], q[5]])
+        let o = fp2SubInline([q[2], q[3]], [y2z1[0], y2z1[1]])
+        let x2z1 = fp2MulInline([aff[0], aff[1]], [q[4], q[5]])
+        let l = fp2SubInline([q[0], q[1]], [x2z1[0], x2z1[1]])
+        let t2 = fp2MulInline([l[0], l[1]], [aff[2], aff[3]])
+        let j = fp2SubInline(fp2MulInline([aff[0], aff[1]], [o[0], o[1]]), [t2[0], t2[1]])
+        return [o[0], o[1], l[0], l[1], j[0], j[1]]
+    }
+
+    // Mixed homogeneous cubic terms from O,L: C=O^2, D=L^2,
+    // E=L*D, F=Z*C, G=X*D, H=E+F-2G. Return E,G,H without normalization.
+    fn mMixedCubicTerms(
+        pointX: [U256; 2], pointZ: [U256; 2], differences: [U256; 4]
+    ) -> [U256; 6] {
+        fp2Validate([pointX[0], pointX[1]])
+        fp2Validate([pointZ[0], pointZ[1]])
+        fp2Validate([differences[0], differences[1]])
+        fp2Validate([differences[2], differences[3]])
+        let c = fp2Square([differences[0], differences[1]])
+        let d = fp2Square([differences[2], differences[3]])
+        let e = fp2MulInline([differences[2], differences[3]], [d[0], d[1]])
+        let f = fp2MulInline([pointZ[0], pointZ[1]], [c[0], c[1]])
+        let g = fp2MulInline([pointX[0], pointX[1]], [d[0], d[1]])
+        let twiceG = fp2Add([g[0], g[1]], [g[0], g[1]])
+        let sumEF = fp2Add([e[0], e[1]], [f[0], f[1]])
+        let h = fp2SubInline([sumEF[0], sumEF[1]], [twiceG[0], twiceG[1]])
+        return [e[0], e[1], g[0], g[1], h[0], h[1]]
+    }
+
+    // addMixedStep: shared intersection/cubic frames preserve old q and aff.
+    fn mAddMixed(q: [U256; 6], aff: [U256; 4]) -> [U256; 12] {
+        let line = mMixedLineTerms(q, aff)
+        let cubic = mMixedCubicTerms([q[0], q[1]], [q[4], q[5]],
+            [line[0], line[1], line[2], line[3]])
+        let t1 = fp2MulInline([q[2], q[3]], [cubic[0], cubic[1]])
+        let x = fp2MulInline([line[2], line[3]], [cubic[4], cubic[5]])
+        let y = fp2SubInline(
+            fp2MulInline(
+                fp2SubInline([cubic[2], cubic[3]], [cubic[4], cubic[5]]),
+                [line[0], line[1]]
+            ),
+            [t1[0], t1[1]]
+        )
+        let z = fp2MulInline([cubic[0], cubic[1]], [q[4], q[5]])
+        let r1 = fp2Neg([line[0], line[1]])
+        return [x[0], x[1], y[0], y[1], z[0], z[1],
+            line[2], line[3], r1[0], r1[1], line[4], line[5]]
+    }
+
+    // lineCompute shares the same L,O,J with addMixedStep; no point update.
+    fn mLineCompute(q: [U256; 6], aff: [U256; 4]) -> [U256; 6] {
+        let line = mMixedLineTerms(q, aff)
+        let r1 = fp2Neg([line[0], line[1]])
+        return [line[2], line[3], r1[0], r1[1], line[4], line[5]]
+    }
+}
