@@ -56,10 +56,14 @@ pub fn prepare_transition_checkpoint(
     }
     let source = source.view()?;
     let target = target.view()?;
+    let admitted = replay
+        .executed_transactions
+        .checked_add(replay.discarded_intents)
+        .ok_or("Checkpoint admission count overflow")?;
     for view in [&source, &target] {
         if view.chain_id() != genesis.chain_id
             || view.head != replay.head
-            || view.pending_counter()? != replay.executed_transactions
+            || view.pending_counter()? != admitted
             || view.state_digest()? != replay.state_digest
             || view
                 .block(checkpoint.head.height)?

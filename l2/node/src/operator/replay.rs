@@ -102,13 +102,12 @@ fn replay_with_checkpoint(
             return Err("Replayed discarded intent status differs".into());
         }
     }
+    let discarded_intents = add_count(0, discarded.len())?;
     let admitted_count = add_count(
-        add_count(
-            executed_transactions
-                .checked_add(rejected_intents)
-                .ok_or("Replay count overflow")?,
-            discarded.len(),
-        )?,
+        executed_transactions
+            .checked_add(rejected_intents)
+            .and_then(|count| count.checked_add(discarded_intents))
+            .ok_or("Replay count overflow")?,
         pending.len(),
     )?;
     if source_view.pending_counter()? != admitted_count {
@@ -145,6 +144,7 @@ fn replay_with_checkpoint(
             state_digest: manifest.state_digest,
             blocks: source_view.head.height,
             executed_transactions,
+            discarded_intents,
             rejected_intents,
             pending_count: pending.len(),
             rejected_policy_revalidated: false,
