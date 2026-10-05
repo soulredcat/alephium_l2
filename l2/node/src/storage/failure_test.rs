@@ -7,6 +7,7 @@ fn injected_batch_failure_stops_success_and_reopening_preserves_state() {
     let directory = tempfile::tempdir().unwrap();
     let genesis = Genesis {
         chain_id: CHAIN_ID,
+        capacity: Default::default(),
         accounts: vec![GenesisAccount {
             address: Address::repeat_byte(1),
             balance: U256::from(1000),

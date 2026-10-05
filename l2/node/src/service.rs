@@ -12,29 +12,87 @@ use std::{
         mpsc,
     },
     thread,
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    time::{Instant, SystemTime, UNIX_EPOCH},
 };
-use tokio::sync::oneshot;
+use tokio::sync::{OwnedSemaphorePermit, Semaphore, oneshot};
 
+mod admission;
+mod metrics;
+pub use metrics::{MetricsSnapshot, StageSnapshot};
+#[cfg(test)]
+mod admission_tests;
+mod preparation;
+mod prepared_cache;
 mod production;
+#[cfg(test)]
+mod queue_tests;
+mod scheduling;
+#[cfg(test)]
+mod tests;
 
 enum Command {
-    Submit(Vec<u8>, oneshot::Sender<Result<TransactionStatus, String>>),
+    Submit {
+        raw: Vec<u8>,
+        head: Head,
+        arrived: Instant,
+        slot: OwnedSemaphorePermit,
+        reply: oneshot::Sender<Result<(TransactionStatus, Head), String>>,
+    },
     Stop,
 }
 
 #[derive(Clone)]
 pub struct NodeHandle {
-    sender: mpsc::SyncSender<Command>,
+    sender: mpsc::Sender<Command>,
+    queued: Arc<Semaphore>,
     view: Arc<RwLock<Arc<ReadView>>>,
     failure: Arc<RwLock<Option<String>>>,
     pending: Arc<AtomicUsize>,
     min_gas_price: u128,
     checkpoint_bytes: Arc<AtomicUsize>,
     checkpoint_limit: usize,
+    capacity: Capacity,
+    metrics: Arc<metrics::Metrics>,
+    available_cpus: usize,
+    hardware_verification_budget: usize,
+    workers_per_cpu: usize,
+    verification_workers: usize,
 }
 
 impl NodeHandle {
+    /// Available logical CPUs reported by the OS at startup, respecting the
+    /// process environment; this is not a physical-core reservation.
+    pub fn available_cpus(&self) -> usize {
+        self.available_cpus
+    }
+
+    /// Logical CPU-minus-one base budget before the operator's worker factor.
+    pub fn hardware_verification_budget(&self) -> usize {
+        self.hardware_verification_budget
+    }
+
+    /// Operator-selected multiplier; a value greater than one oversubscribes
+    /// the hardware base budget and does not add physical CPUs.
+    pub fn workers_per_cpu(&self) -> usize {
+        self.workers_per_cpu
+    }
+
+    /// Configured verification task ceiling, including the owning core. Actual
+    /// scoped tasks are also bounded by available inputs.
+    pub fn verification_workers(&self) -> usize {
+        self.verification_workers
+    }
+
+    /// Limits pinned by this node's canonical genesis/profile.
+    pub fn capacity(&self) -> Capacity {
+        self.capacity
+    }
+
+    /// Cumulative diagnostics. Maxima are cumulative and cannot be subtracted.
+    pub fn metrics(&self) -> MetricsSnapshot {
+        self.metrics.snapshot()
+    }
+
     /// Admission floor for the effective gas price, in wei.
     pub fn min_gas_price(&self) -> u128 {
         self.min_gas_price
@@ -70,15 +128,47 @@ impl NodeHandle {
         if let Ok(mut failure) = self.failure.write() {
             *failure = Some("Durable processing stopped; restart and recovery required".into());
         }
+        self.queued.close();
     }
 
     pub async fn submit(&self, raw: Vec<u8>) -> Result<TransactionStatus, String> {
+        self.submit_with_head(raw).await.map(|(status, _)| status)
+    }
+
+    /// Capture the committed head at request arrival, before the writer queue.
+    /// The original next block is a reporting target, not an admission deadline.
+    /// This never waits for a receipt or a batch deadline.
+    pub async fn submit_with_head(
+        &self,
+        raw: Vec<u8>,
+    ) -> Result<(TransactionStatus, Head), String> {
+        if self.failure().is_some() {
+            return Err("Recovery required".into());
+        }
+        if raw.is_empty() || raw.len() > MAX_TRANSACTION_BYTES {
+            return Err("Transaction encoding exceeds admission bounds".into());
+        }
+        let arrived = Instant::now();
+        let head = self.view()?.head.clone();
+        let slot = self.queued.clone().acquire_owned().await.map_err(|_| {
+            if self.failure().is_some() {
+                "Recovery required"
+            } else {
+                "Node stopping before admission"
+            }
+        })?;
         if self.failure().is_some() {
             return Err("Recovery required".into());
         }
         let (reply, receive) = oneshot::channel();
         self.sender
-            .try_send(Command::Submit(raw, reply))
+            .send(Command::Submit {
+                raw,
+                head,
+                arrived,
+                slot,
+                reply,
+            })
             .map_err(|_| "Admission queue unavailable or full")?;
         receive
             .await
@@ -86,8 +176,10 @@ impl NodeHandle {
     }
 
     pub async fn stop(&self) {
-        let sender = self.sender.clone();
-        let _ = tokio::task::spawn_blocking(move || sender.send(Command::Stop)).await;
+        // Wake requests that have not entered the queue. Queued commands keep
+        // their permits until received/dropped and retain FIFO Stop ordering.
+        self.queued.close();
+        let _ = self.sender.send(Command::Stop);
     }
 }
 
@@ -95,6 +187,7 @@ struct Core {
     store: Store,
     head: Head,
     pending: Vec<Pending>,
+    prepared: std::collections::HashMap<B256, execution::PreparedTransaction>,
     handle: NodeHandle,
 }
 
@@ -111,7 +204,7 @@ impl Core {
                 .checked_add(1)
                 .ok_or("Block height overflow")?,
             timestamp: now.max(self.head.timestamp),
-            gas_limit: BLOCK_GAS,
+            gas_limit: self.handle.capacity.block_gas,
         })
     }
 
@@ -131,67 +224,16 @@ impl Core {
         Ok(())
     }
 
-    fn submit(&mut self, raw: Vec<u8>) -> Result<TransactionStatus, String> {
-        if raw.is_empty() || raw.len() > MAX_TRANSACTION_BYTES {
-            return Err("Transaction encoding exceeds admission bounds".into());
-        }
-        let hash = alloy_primitives::keccak256(&raw);
-        let view = self.handle.view()?;
-        match view.status(hash) {
-            Ok(Some(status)) => return Ok(status),
-            Ok(None) => (),
-            Err(_) => {
-                self.fail();
-                return Err("Status unavailable; recovery required".into());
-            }
-        }
-        if self.pending.len() >= MAX_PENDING {
-            return Err("Pending queue full".into());
-        }
-        let info =
-            execution::validate((*view).clone(), &raw, self.context()?).inspect_err(|e| {
-                if execution::is_infrastructure_error(e) {
-                    self.fail();
-                }
-            })?;
-        if info.gas_price < self.handle.min_gas_price {
-            return Err("Gas price is below the node minimum".into());
-        }
-        if info.gas_limit > BLOCK_GAS || info.gas_limit == 0 {
-            return Err("Transaction cannot fit block gas budget".into());
-        }
-        if self.pending.iter().any(|p| p.sender == info.sender) {
-            return Err("One pending transaction per sender is supported".into());
-        }
-        let pending = Pending {
-            hash,
-            sender: info.sender,
-            raw,
-        };
-        // Any ambiguous persistence failure is terminal; a client error cannot undo intent.
-        let status = match self.store.admit(pending.clone()) {
-            Ok(status) => status,
-            Err(_) => {
-                self.fail();
-                return Err("Durable admission failed; reconcile after recovery".into());
-            }
-        };
-        self.pending.push(pending);
-        match self.store.view().and_then(|v| self.publish(v)) {
-            Ok(()) => Ok(status),
-            Err(_) => {
-                self.fail();
-                Err("Outcome ambiguous; recovery required".into())
-            }
-        }
-    }
-
     fn fail(&self) {
         self.handle.mark_failed();
     }
 }
 
 pub fn start(config: &Config) -> Result<(NodeHandle, thread::JoinHandle<()>), String> {
+    let (available_cpus, hardware_verification_budget) = preparation::detected_budget();
+    let workers_per_cpu = config.verification_workers_per_cpu;
+    // Direct Config callers receive the same check before opening/creating data.
+    let verification_workers = preparation::configured_budget(available_cpus, workers_per_cpu)?;
     let maximum = crate::operator::MAX_CONTINUATION_CHECKPOINT_BYTES;
     if !(1..=maximum).contains(&config.max_checkpoint_bytes) {
         return Err(format!(
@@ -206,69 +248,56 @@ pub fn start(config: &Config) -> Result<(NodeHandle, thread::JoinHandle<()>), St
         .checkpoint_capacity()
         .ok_or("Checkpoint capacity tracking is unavailable")?;
     let view = store.view()?;
+    let capacity = view.capacity();
     let pending = store.pending()?;
-    if pending.len() > MAX_PENDING {
+    if pending.len() > capacity.max_pending {
         return Err("Persisted pending queue exceeds bound".into());
     }
     let mut senders = std::collections::HashSet::new();
-    for entry in &pending {
-        let info = execution::inspect_for_chain(&entry.raw, view.chain_id())?;
+    let raw_inputs: Vec<_> = pending.iter().map(|entry| entry.raw.as_slice()).collect();
+    let verified =
+        preparation::prepare_parallel(&raw_inputs, view.chain_id(), verification_workers)?;
+    let mut prepared = std::collections::HashMap::with_capacity(pending.len());
+    for (entry, verified) in pending.iter().zip(verified) {
+        let verified = verified?;
+        let info = verified.info();
         if info.hash != entry.hash
             || info.sender != entry.sender
             || !senders.insert(info.sender)
-            || info.gas_limit > BLOCK_GAS
+            || info.gas_limit > capacity.block_gas
             || entry.raw.len() > MAX_TRANSACTION_BYTES
         {
             return Err("Invalid persisted admission identity".into());
         }
+        prepared.insert(entry.hash, verified);
     }
-    let (sender, receive) = mpsc::sync_channel(MAX_PENDING);
+    let (sender, receive) = mpsc::channel();
     let handle = NodeHandle {
         sender,
+        queued: Arc::new(Semaphore::new(capacity.max_pending)),
         view: Arc::new(RwLock::new(Arc::new(view.clone()))),
         failure: Arc::new(RwLock::new(None)),
         pending: Arc::new(AtomicUsize::new(pending.len())),
         min_gas_price: config.min_gas_price,
         checkpoint_bytes: Arc::new(AtomicUsize::new(checkpoint_bytes)),
         checkpoint_limit,
+        capacity,
+        metrics: Arc::new(metrics::Metrics::default()),
+        available_cpus,
+        hardware_verification_budget,
+        workers_per_cpu,
+        verification_workers,
     };
-    let mut core = Core {
+    let core = Core {
         store,
         head: view.head,
         pending,
+        prepared,
         handle: handle.clone(),
     };
     let worker = thread::Builder::new()
         .name("l2-core".into())
-        .spawn(move || {
-            let interval = Duration::from_millis(BLOCK_INTERVAL_MS);
-            let mut deadline = Instant::now() + interval;
-            let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                loop {
-                    if Instant::now() >= deadline {
-                        if core.handle.failure().is_none() && core.produce().is_err() {
-                            core.fail();
-                        }
-                        deadline = Instant::now() + interval;
-                    }
-                    match receive.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
-                        Ok(Command::Submit(raw, reply)) => {
-                            let result = if core.handle.failure().is_some() {
-                                Err("Recovery required".into())
-                            } else {
-                                core.submit(raw)
-                            };
-                            let _ = reply.send(result);
-                        }
-                        Ok(Command::Stop) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
-                        Err(mpsc::RecvTimeoutError::Timeout) => (),
-                    }
-                }
-            }));
-            if outcome.is_err() {
-                core.fail();
-            }
-        })
+        .spawn(move || scheduling::run(core, receive))
         .map_err(|e| e.to_string())?;
     Ok((handle, worker))
 }
@@ -277,57 +306,4 @@ pub fn transaction_hash(value: &str) -> Result<B256, String> {
     value
         .parse()
         .map_err(|_| "Invalid transaction identity".into())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::start;
-    use crate::{config::Config, development};
-    use alloy_primitives::{Address, U256};
-
-    fn type2(max_fee: u128, priority: u128) -> Vec<u8> {
-        let to = Some(Address::repeat_byte(0x42));
-        development::sign_type2(
-            0,
-            to,
-            U256::from(1),
-            vec![],
-            21_000,
-            max_fee,
-            priority,
-            Default::default(),
-        )
-        .unwrap()
-    }
-
-    #[tokio::test]
-    async fn admission_enforces_the_minimum_effective_gas_price() {
-        let directory = tempfile::tempdir().unwrap();
-        let config = Config {
-            listen: "127.0.0.1:0".parse().unwrap(),
-            data_dir: directory.path().join("data"),
-            genesis: development::genesis(),
-            min_gas_price: 2,
-            max_checkpoint_bytes: crate::operator::MAX_CONTINUATION_CHECKPOINT_BYTES,
-        };
-        let (node, worker) = start(&config).unwrap();
-        let legacy = development::sign(
-            0,
-            Some(Address::repeat_byte(0x42)),
-            U256::from(1),
-            vec![],
-            21_000,
-        )
-        .unwrap();
-        // Legacy fixture pays 1 wei; type 2 pays its priority fee at a zero base fee.
-        for below in [legacy, type2(10, 1), type2(1, 1)] {
-            let error = node.submit(below).await.unwrap_err();
-            assert_eq!(error, "Gas price is below the node minimum");
-        }
-        let accepted = node.submit(type2(10, 2)).await.unwrap();
-        assert_eq!(accepted.status, "durably_accepted");
-        node.stop().await;
-        worker.join().unwrap();
-        assert!(node.failure().is_none());
-    }
 }

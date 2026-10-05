@@ -16,7 +16,9 @@ pub(crate) fn execute_retained(
     chain_id: u64,
     parent: &Head,
     input: &TransitionBlock,
+    capacity: Capacity,
 ) -> Result<(Head, Vec<Receipt>), String> {
+    capacity.validate()?;
     let context = BlockContext {
         number: input.context.number,
         timestamp: input.context.timestamp,
@@ -25,9 +27,9 @@ pub(crate) fn execute_retained(
     if input.parent != *parent
         || context.number != parent.height.checked_add(1).ok_or("height overflow")?
         || context.timestamp < parent.timestamp
-        || context.gas_limit != BLOCK_GAS
+        || context.gas_limit != capacity.block_gas
         || input.transactions.is_empty()
-        || input.transactions.len() > MAX_PENDING
+        || input.transactions.len() > capacity.max_pending
     {
         return Err("batch ancestry, context or transaction count is invalid".into());
     }
@@ -36,7 +38,7 @@ pub(crate) fn execute_retained(
         .iter()
         .map(|tx| private_envelope(&tx.raw_envelope_hex))
         .collect::<Result<Vec<_>, _>>()?;
-    let output = batch_execution::execute_block(state, &raws, chain_id, context)?;
+    let output = batch_execution::execute_block(state, &raws, chain_id, context, capacity)?;
     let commit = BlockCommit {
         parent: parent.clone(),
         context,
@@ -45,10 +47,10 @@ pub(crate) fn execute_retained(
         receipts: output.receipts,
         rejected: Vec::new(),
     };
-    block::validate(&commit)?;
-    block::logical_bytes(&commit, raws.iter().map(Vec::as_slice))?;
+    block::validate_with_capacity(&commit, capacity)?;
+    block::logical_bytes_with_capacity(&commit, raws.iter().map(Vec::as_slice), capacity)?;
     let stored = state.apply(&commit.changes)?;
-    let (head, _) = block::encode(&commit, &stored)?;
+    let (head, _) = block::encode_with_capacity(&commit, &stored, capacity)?;
     if head != input.head {
         return Err("executed batch head differs from retained runtime head".into());
     }

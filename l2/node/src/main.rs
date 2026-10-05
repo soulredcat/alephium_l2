@@ -1,28 +1,38 @@
 use alephium_l2_node::{
     config::{self, Config},
-    development,
-    protocol::CHAIN_ID,
     rpc, service,
 };
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let workers = std::thread::available_parallelism()
+        .map(|available| available.get())
+        .unwrap_or(1)
+        .saturating_sub(1)
+        .max(1);
+    // Async workers park while idle. Execution and durable commits retain the
+    // separate ordered core; this networking budget leaves one logical CPU.
+    tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(workers)
+        .enable_all()
+        .build()?
+        .block_on(run())
+}
+
+async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();
     if args.get(1).map(String::as_str) == Some("--make-genesis") {
-        let chain_id = match args.len() {
-            3 => CHAIN_ID,
-            5 if args[3] == "--chain-id" => config::parse_chain_id(&args[4])?,
-            _ => return Err("Usage: --make-genesis <new-file> [--chain-id <id>]".into()),
-        };
-        let genesis = development::genesis_for_chain(chain_id)?;
+        let (path, genesis) = config::genesis_command(&args)?;
         use std::io::Write;
         let mut file = std::fs::OpenOptions::new()
             .write(true)
             .create_new(true)
-            .open(&args[2])?;
+            .open(path)?;
         file.write_all(&serde_json::to_vec_pretty(&genesis)?)?;
         file.sync_all()?;
-        println!("Created development-only genesis for chain {chain_id}");
+        println!(
+            "Created development-only genesis for chain {} with capacity {:?}",
+            genesis.chain_id, genesis.capacity
+        );
         return Ok(());
     }
     let config = Config::parse()?;
@@ -33,8 +43,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "Development-only EVM node on {}; chain {}; settlement unimplemented",
         config.listen, config.genesis.chain_id
     );
+    println!(
+        "Detected {} logical CPUs; {} transaction verification workers",
+        node.available_cpus(),
+        node.verification_workers()
+    );
     let stop = node.clone();
-    let result = axum::serve(listener, rpc::router(node))
+    let router = match rpc::router_with_limits(node, config.rpc) {
+        Ok(router) => router,
+        Err(error) => {
+            stop.stop().await;
+            let _ = tokio::task::spawn_blocking(move || worker.join()).await;
+            return Err(error.into());
+        }
+    };
+    let result = axum::serve(listener, router)
         .with_graceful_shutdown(async {
             let _ = tokio::signal::ctrl_c().await;
         })

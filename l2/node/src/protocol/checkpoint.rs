@@ -1,7 +1,7 @@
 //! Canonical complete execution checkpoint, independent of database layout.
 mod codec;
 
-use super::{Head, validate_chain_id};
+use super::{Capacity, Head, validate_chain_id};
 use alloy_primitives::{Address, B256, U256, keccak256};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -22,6 +22,8 @@ const DOMAIN: &[u8] = b"alephium-l2/execution-checkpoint/v1";
 pub struct ExecutionCheckpoint {
     pub schema: u32,
     pub chain_id: u64,
+    #[serde(default, skip_serializing_if = "Capacity::is_default")]
+    pub capacity: Capacity,
     pub genesis_id: B256,
     pub head: Head,
     pub accounts: Vec<CheckpointAccount>,
@@ -65,7 +67,8 @@ pub struct CheckpointBlockHash {
 impl ExecutionCheckpoint {
     pub fn validate(&self) -> Result<(), String> {
         validate_chain_id(self.chain_id)?;
-        if self.schema != CHECKPOINT_SCHEMA
+        self.capacity.validate()?;
+        if self.schema != self.capacity.checkpoint_schema()
             || self.head.genesis_id != self.genesis_id
             || self.accounts.len() > MAX_CHECKPOINT_ACCOUNTS
             || self.codes.len() > MAX_CHECKPOINT_CODES
@@ -80,7 +83,7 @@ impl ExecutionCheckpoint {
         {
             return Err("invalid checkpoint identity, count or canonical ordering".into());
         }
-        let mut size = DOMAIN.len() + 136;
+        let mut size = DOMAIN.len() + 136 + if self.capacity.is_default() { 0 } else { 24 };
         let mut slot_count = 0usize;
         let mut referenced = BTreeSet::new();
         let empty_code = keccak256([]);

@@ -4,7 +4,7 @@ use super::transition_types::{
     TransitionContext, TransitionInput,
 };
 use crate::protocol::{
-    BLOCK_BYTES, MAX_PENDING, MAX_TRANSACTION_BYTES, Receipt,
+    Capacity, MAX_TRANSACTION_BYTES, Receipt,
     checkpoint::ExecutionCheckpoint,
     encoding::{Decoder, Encoder, MAX_RECORD},
     head_codec::{encode_head, read_head},
@@ -44,8 +44,15 @@ pub fn checkpoint_transition_base_bytes(
     Ok(size)
 }
 
-pub fn checkpoint_transition_block_bytes(block: &TransitionBlock) -> Result<usize, String> {
-    if block.transactions.is_empty() || block.transactions.len() > MAX_PENDING {
+pub fn checkpoint_transition_block_bytes_with_capacity(
+    block: &TransitionBlock,
+    capacity: Capacity,
+) -> Result<usize, String> {
+    capacity.validate()?;
+    if block.context.gas_limit != capacity.block_gas {
+        return Err("transition block gas differs from its checkpoint profile".into());
+    }
+    if block.transactions.is_empty() || block.transactions.len() > capacity.max_pending {
         return Err("transition block transaction count exceeds its bound".into());
     }
     let mut size = 80 + 80 + 24 + 4;
@@ -55,7 +62,7 @@ pub fn checkpoint_transition_block_bytes(block: &TransitionBlock) -> Result<usiz
         logical_bytes = logical_bytes
             .checked_add(4 + raw)
             .ok_or("block byte overflow")?;
-        if logical_bytes > BLOCK_BYTES {
+        if logical_bytes > capacity.block_bytes {
             return Err("transition block exceeds the runtime payload bound".into());
         }
         add(&mut size, 32 + 4 + raw + 4)?;
@@ -81,7 +88,10 @@ pub fn encode_checkpoint_transition(
         checkpoint.len(),
     )?;
     for block in &bundle.blocks {
-        add(&mut size, checkpoint_transition_block_bytes(block)?)?;
+        add(
+            &mut size,
+            checkpoint_transition_block_bytes_with_capacity(block, bundle.checkpoint.capacity)?,
+        )?;
     }
     // The complete size is checked before allocating the transport buffer.
     let mut out = Encoder(Vec::with_capacity(size));
@@ -146,7 +156,7 @@ pub fn decode_checkpoint_transition(bytes: &[u8]) -> Result<CheckpointTransition
             gas_limit: input.u64()?,
         };
         let count = input.count(188)?;
-        if count == 0 || count > MAX_PENDING {
+        if count == 0 || count > checkpoint.capacity.max_pending {
             return Err("binary block transaction count exceeds its bound".into());
         }
         let mut transactions = Vec::with_capacity(count);
@@ -169,7 +179,7 @@ pub fn decode_checkpoint_transition(bytes: &[u8]) -> Result<CheckpointTransition
             context,
             transactions,
         };
-        checkpoint_transition_block_bytes(&block)?;
+        checkpoint_transition_block_bytes_with_capacity(&block, checkpoint.capacity)?;
         blocks.push(block);
     }
     let head = read_head(&mut input)?;

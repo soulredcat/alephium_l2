@@ -47,7 +47,7 @@ pub use batch::prove_batch_transition;
 pub use batch_journal::{BatchTransitionJournal, batch_data};
 pub use checkpoint_batch::{
     CheckpointTransitionOutput, checkpoint_batch_data, checkpoint_profile,
-    prove_checkpoint_transition,
+    checkpoint_profile_with_capacity, prove_checkpoint_transition,
 };
 pub use input::{
     BatchTransitionBundle, BatchTransitionReport, MAX_TRANSITION_BLOCKS, SettlementDomain,
@@ -62,7 +62,7 @@ pub use transition_wire::{
     encode_checkpoint_transition, is_checkpoint_wire,
 };
 
-use protocol::{BLOCK_GAS, BlockCommit};
+use protocol::{BLOCK_GAS, BlockCommit, Capacity};
 
 pub const RPC_PROFILE: &str = "development/c5-v1";
 pub const EXECUTION_ENGINE: &str = "REVM 43.0.3/Cancun (same library as producer)";
@@ -71,6 +71,11 @@ pub const PROOF_SCOPE: &str = "genesis-first-native-eoa-transfer/v1";
 /// Reconstruct full genesis, recover the actual signer and execute REVM before
 /// comparing any supplied output oracle. Bundle verification flags are ignored.
 pub fn prove_transition(bundle: &TransitionBundle) -> Result<TransitionJournal, String> {
+    // Schema one has no capacity-bearing journal. Custom chains must use the
+    // existing full-history or checkpoint batch statement, which binds it.
+    if bundle.genesis.capacity != Capacity::default() {
+        return Err("legacy single-transfer proof requires the default capacity".into());
+    }
     if bundle.schema != 1
         || bundle.rpc_profile != RPC_PROFILE
         || bundle.execution_engine != EXECUTION_ENGINE

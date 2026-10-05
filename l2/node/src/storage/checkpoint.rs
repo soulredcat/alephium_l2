@@ -1,8 +1,8 @@
 //! Capture a complete execution witness from one committed database snapshot.
 use super::{ReadView, encoding::key, records};
 use crate::protocol::checkpoint::{
-    CHECKPOINT_SCHEMA, CheckpointAccount, CheckpointBlockHash, CheckpointCode, CheckpointSlot,
-    ExecutionCheckpoint, MAX_CHECKPOINT_ACCOUNTS, MAX_CHECKPOINT_BYTES,
+    CheckpointAccount, CheckpointBlockHash, CheckpointCode, CheckpointSlot, ExecutionCheckpoint,
+    MAX_CHECKPOINT_ACCOUNTS, MAX_CHECKPOINT_BYTES,
 };
 use alloy_primitives::{Address, B256, U256, keccak256};
 use fjall::Readable;
@@ -64,8 +64,9 @@ impl ReadView {
             });
         }
         let checkpoint = ExecutionCheckpoint {
-            schema: CHECKPOINT_SCHEMA,
+            schema: self.capacity().checkpoint_schema(),
             chain_id: self.chain_id(),
+            capacity: self.capacity(),
             genesis_id: genesis.genesis_id,
             head: self.head.clone(),
             accounts,

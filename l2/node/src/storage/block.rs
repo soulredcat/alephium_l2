@@ -1,8 +1,6 @@
 use super::encoding::{Decoder, Encoder, MAX_RECORD};
 use super::records::{decode_receipt, encode_head, encode_receipt, read_head};
-use crate::protocol::{
-    AccountChange, BLOCK_BYTES, BLOCK_GAS, BlockCommit, BlockContext, Head, Receipt, SCHEMA,
-};
+use crate::protocol::{AccountChange, BlockCommit, BlockContext, Capacity, Head, Receipt, SCHEMA};
 use alloy_primitives::B256;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
@@ -22,7 +20,21 @@ pub(super) struct StoredBlock {
     pub rejected: Vec<(B256, String)>,
 }
 
+#[allow(dead_code)]
 pub(super) fn validate(commit: &BlockCommit) -> Result<(), String> {
+    validate_with_capacity(commit, Capacity::default())
+}
+
+pub(super) fn validate_with_capacity(
+    commit: &BlockCommit,
+    capacity: Capacity,
+) -> Result<(), String> {
+    capacity.validate()?;
+    let resolved = commit
+        .transactions
+        .len()
+        .checked_add(commit.rejected.len())
+        .ok_or("resolved transaction count overflow")?;
     if commit.context.number
         != commit
             .parent
@@ -30,9 +42,9 @@ pub(super) fn validate(commit: &BlockCommit) -> Result<(), String> {
             .checked_add(1)
             .ok_or("height overflow")?
         || commit.context.timestamp < commit.parent.timestamp
-        || commit.context.gas_limit != BLOCK_GAS
+        || commit.context.gas_limit != capacity.block_gas
         || commit.transactions.len() != commit.receipts.len()
-        || commit.transactions.len() + commit.rejected.len() > crate::protocol::MAX_PENDING
+        || resolved > capacity.max_pending
         || commit.transactions.is_empty() && commit.rejected.is_empty()
     {
         return Err("invalid block transition context".into());
@@ -49,7 +61,7 @@ pub(super) fn validate(commit: &BlockCommit) -> Result<(), String> {
             || receipt.transaction_index != index as u64
             || receipt.cumulative_gas != cumulative
             || receipt.first_log_index != log_index
-            || cumulative > BLOCK_GAS
+            || cumulative > capacity.block_gas
             || !hashes.insert(receipt.hash)
             || !receipt.success && !receipt.logs.is_empty()
         {
@@ -79,10 +91,20 @@ pub(super) fn validate(commit: &BlockCommit) -> Result<(), String> {
     Ok(())
 }
 
+#[allow(dead_code)]
 pub(super) fn logical_bytes<'a>(
     commit: &BlockCommit,
     raws: impl Iterator<Item = &'a [u8]>,
 ) -> Result<usize, String> {
+    logical_bytes_with_capacity(commit, raws, Capacity::default())
+}
+
+pub(super) fn logical_bytes_with_capacity<'a>(
+    commit: &BlockCommit,
+    raws: impl Iterator<Item = &'a [u8]>,
+    capacity: Capacity,
+) -> Result<usize, String> {
+    capacity.validate()?;
     // Complete logical block: version, parent/head/context, count and each length-prefixed envelope.
     // Receipts/state delta are separately persisted execution outputs, not ingress block payload.
     let mut length = 4usize + 80 + 32 + 24 + 4;
@@ -93,35 +115,45 @@ pub(super) fn logical_bytes<'a>(
             .ok_or("block byte count overflow")?;
         count += 1;
     }
-    if count != commit.transactions.len() || length > BLOCK_BYTES {
+    if count != commit.transactions.len() || length > capacity.block_bytes {
         return Err("complete block payload exceeds limit".into());
     }
     Ok(length)
 }
 
+#[allow(dead_code)]
 pub(super) fn encode(
     commit: &BlockCommit,
     changes: &[StoredChange],
 ) -> Result<(Head, Vec<u8>), String> {
+    encode_with_capacity(commit, changes, Capacity::default())
+}
+
+pub(super) fn encode_with_capacity(
+    commit: &BlockCommit,
+    changes: &[StoredChange],
+    capacity: Capacity,
+) -> Result<(Head, Vec<u8>), String> {
+    validate_with_capacity(commit, capacity)?;
     let mut body = Encoder::default();
     body.u32(SCHEMA);
     body.0.extend(encode_head(&commit.parent));
     body.u64(commit.context.number);
     body.u64(commit.context.timestamp);
     body.u64(commit.context.gas_limit);
-    body.u32(commit.transactions.len() as u32);
+    body.u32(u32::try_from(commit.transactions.len()).map_err(|_| "transaction count overflow")?);
     for hash in &commit.transactions {
         body.hash(*hash);
     }
-    body.u32(changes.len() as u32);
+    body.u32(u32::try_from(changes.len()).map_err(|_| "changes count overflow")?);
     for change in changes {
         write_change(&mut body, change)?;
     }
-    body.u32(commit.receipts.len() as u32);
+    body.u32(u32::try_from(commit.receipts.len()).map_err(|_| "receipt count overflow")?);
     for receipt in &commit.receipts {
         body.bytes(&encode_receipt(receipt, false)?)?;
     }
-    body.u32(commit.rejected.len() as u32);
+    body.u32(u32::try_from(commit.rejected.len()).map_err(|_| "rejected count overflow")?);
     for (hash, reason) in &commit.rejected {
         body.hash(*hash);
         body.bytes(reason.as_bytes())?;
@@ -141,7 +173,16 @@ pub(super) fn encode(
     Ok((head, record.finish()?))
 }
 
+#[allow(dead_code)]
 pub(super) fn decode(bytes: &[u8]) -> Result<StoredBlock, String> {
+    decode_with_capacity(bytes, Capacity::default())
+}
+
+pub(super) fn decode_with_capacity(
+    bytes: &[u8],
+    capacity: Capacity,
+) -> Result<StoredBlock, String> {
+    capacity.validate()?;
     if bytes.len() < 36 || bytes.len() > MAX_RECORD {
         return Err("invalid block record size".into());
     }
@@ -163,6 +204,9 @@ pub(super) fn decode(bytes: &[u8]) -> Result<StoredBlock, String> {
         gas_limit: input.u64()?,
     };
     let count = input.count(32)?;
+    if count > capacity.max_pending {
+        return Err("block transaction count exceeds profile capacity".into());
+    }
     let mut transactions = Vec::with_capacity(count);
     for _ in 0..count {
         transactions.push(input.hash()?);
@@ -179,11 +223,17 @@ pub(super) fn decode(bytes: &[u8]) -> Result<StoredBlock, String> {
         return Err("noncanonical account changes".into());
     }
     let count = input.count(4)?;
+    if count > capacity.max_pending {
+        return Err("block receipt count exceeds profile capacity".into());
+    }
     let mut receipts = Vec::with_capacity(count);
     for _ in 0..count {
         receipts.push(decode_receipt(&input.bytes()?, Some(commit_id))?);
     }
     let count = input.count(36)?;
+    if count > capacity.max_pending {
+        return Err("block rejection count exceeds profile capacity".into());
+    }
     let mut rejected = Vec::with_capacity(count);
     for _ in 0..count {
         rejected.push((
@@ -200,7 +250,7 @@ pub(super) fn decode(bytes: &[u8]) -> Result<StoredBlock, String> {
         receipts: receipts.clone(),
         rejected: rejected.clone(),
     };
-    validate(&commit)?;
+    validate_with_capacity(&commit, capacity)?;
     let head = Head {
         height: context.number,
         timestamp: context.timestamp,

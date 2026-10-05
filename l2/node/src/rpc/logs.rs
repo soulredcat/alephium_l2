@@ -4,7 +4,7 @@ use super::{
     receipt::log_value,
 };
 use crate::{
-    protocol::{BLOCK_BYTES, BlockInfo, EventLog},
+    protocol::{BlockInfo, EventLog},
     storage::ReadView,
 };
 use alloy_primitives::{Address, B256, U256};
@@ -108,11 +108,12 @@ fn height(value: Option<&Value>, head: u64) -> Result<u64, RpcError> {
 struct Results {
     logs: Vec<Value>,
     bytes: usize,
+    limit: usize,
 }
 
 impl Results {
     fn append(&mut self, receipt: &crate::protocol::Receipt, index: usize) -> Result<(), RpcError> {
-        if self.logs.len() >= MAX_LOGS || receipt.logs[index].data.len() > BLOCK_BYTES / 2 {
+        if self.logs.len() >= MAX_LOGS || receipt.logs[index].data.len() > self.limit / 2 {
             return Err("Log result exceeds response bound; narrow the filter".into());
         }
         let value = log_value(receipt, index)?;
@@ -122,7 +123,7 @@ impl Results {
         self.bytes = self
             .bytes
             .saturating_add(length + usize::from(!self.logs.is_empty()));
-        if self.bytes > BLOCK_BYTES {
+        if self.bytes > self.limit {
             return Err("Log result exceeds response bound; narrow the filter".into());
         }
         self.logs.push(value);
@@ -180,6 +181,7 @@ pub(super) fn query(view: Arc<ReadView>, input: &Value) -> Result<Value, RpcErro
     let mut result = Results {
         logs: Vec::new(),
         bytes: 2,
+        limit: view.capacity().block_bytes,
     };
     if let Some(block_hash) = object.get("blockHash") {
         if object.contains_key("fromBlock") || object.contains_key("toBlock") {

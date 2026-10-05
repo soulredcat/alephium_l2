@@ -1,7 +1,9 @@
 use alloy_primitives::{Address, B256, U256};
 use serde::{Deserialize, Serialize};
 
+mod capacity;
 pub mod checkpoint;
+pub use capacity::Capacity;
 #[allow(dead_code)]
 pub(crate) mod encoding;
 pub(crate) mod head_codec;
@@ -80,12 +82,15 @@ pub struct Head {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Genesis {
     pub chain_id: u64,
+    #[serde(default, skip_serializing_if = "Capacity::is_default")]
+    pub capacity: Capacity,
     pub accounts: Vec<GenesisAccount>,
 }
 
 impl Genesis {
     pub fn validate(&self) -> Result<(), String> {
         validate_chain_id(self.chain_id)?;
+        self.capacity.validate()?;
         if self.accounts.len() > 4096 {
             return Err("genesis account count exceeds development limit".into());
         }

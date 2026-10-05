@@ -1,7 +1,7 @@
 use crate::{
     batch_state::FullState,
     changes::Changes,
-    protocol::{AccountChange, BLOCK_GAS, BlockContext, EventLog, MAX_PENDING, Receipt},
+    protocol::{AccountChange, BlockContext, Capacity, EventLog, Receipt},
     transaction,
 };
 use alloy_primitives::{B256, U256};
@@ -25,8 +25,13 @@ pub(crate) fn execute_block(
     inputs: &[Vec<u8>],
     chain_id: u64,
     context: BlockContext,
+    capacity: Capacity,
 ) -> Result<ExecutedBlock, String> {
-    if context.gas_limit != BLOCK_GAS || inputs.is_empty() || inputs.len() > MAX_PENDING {
+    capacity.validate()?;
+    if context.gas_limit != capacity.block_gas
+        || inputs.is_empty()
+        || inputs.len() > capacity.max_pending
+    {
         return Err("unsupported executed block gas or transaction count".into());
     }
     // Keep default Cancun precompiles enabled, including nested invocations.

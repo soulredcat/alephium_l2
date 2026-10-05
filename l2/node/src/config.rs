@@ -20,6 +20,9 @@ pub struct Config {
     /// exceed this including reserved hash-window growth; at most the
     /// continuation transport bound.
     pub max_checkpoint_bytes: usize,
+    pub rpc: crate::rpc::RpcLimits,
+    /// Independent signature workers per available CPU budget; state stays ordered.
+    pub verification_workers_per_cpu: usize,
 }
 
 impl Config {
@@ -31,6 +34,8 @@ impl Config {
         let mut chain_id = CHAIN_ID;
         let mut min_gas_price = 0;
         let mut max_checkpoint_bytes = MAX_CONTINUATION_CHECKPOINT_BYTES;
+        let mut rpc = crate::rpc::RpcLimits::default();
+        let mut verification_workers_per_cpu = 1;
         let mut options = BTreeSet::new();
         while let Some(arg) = args.next() {
             if !options.insert(arg.clone()) {
@@ -46,6 +51,15 @@ impl Config {
                 "--chain-id" => chain_id = parse_chain_id(&value)?,
                 "--min-gas-price" => min_gas_price = parse_gas_price(&value)?,
                 "--max-checkpoint-bytes" => max_checkpoint_bytes = parse_checkpoint_bytes(&value)?,
+                "--rpc-inflight" => rpc.request_inflight = positive_count(&value)?,
+                "--rpc-body-bytes" => rpc.request_bytes = positive_count(&value)?,
+                "--rpc-read-inflight" => rpc.read_inflight = positive_count(&value)?,
+                "--rpc-simulations" => rpc.simulation_inflight = positive_count(&value)?,
+                "--rpc-batch-calls" => rpc.batch_calls = positive_count(&value)?,
+                "--rpc-response-bytes" => rpc.response_bytes = positive_count(&value)?,
+                "--verification-workers-per-cpu" => {
+                    verification_workers_per_cpu = positive_count(&value)?
+                }
                 _ => return Err(format!("Unknown option: {arg}")),
             }
         }
@@ -57,14 +71,65 @@ impl Config {
         }
         let path = genesis_file.ok_or("Pass --genesis <fresh-development-genesis.json>")?;
         let genesis = load_genesis(&path, chain_id)?;
+        rpc.validate()?;
         Ok(Self {
             listen,
             data_dir,
             genesis,
             min_gas_price,
             max_checkpoint_bytes,
+            rpc,
+            verification_workers_per_cpu,
         })
     }
+}
+
+fn positive_count(value: &str) -> Result<usize, String> {
+    if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err("RPC capacity must be a positive decimal integer".into());
+    }
+    value
+        .parse::<usize>()
+        .ok()
+        .filter(|value| *value != 0)
+        .ok_or_else(|| "RPC capacity must be a positive usize".into())
+}
+
+/// Capacity belongs to a fresh genesis, never an override of persisted state.
+pub fn genesis_command(args: &[String]) -> Result<(PathBuf, Genesis), String> {
+    let path = args.get(2).filter(|path| !path.is_empty())
+        .ok_or("Usage: --make-genesis <new-file> [--chain-id <id>] [--block-gas <gas>] [--block-bytes <bytes>] [--max-pending <count>]")?;
+    let mut genesis = crate::development::genesis();
+    let mut options = BTreeSet::new();
+    let mut values = args[3..].iter();
+    while let Some(option) = values.next() {
+        if !options.insert(option) {
+            return Err(format!("Duplicate genesis option: {option}"));
+        }
+        let value = values
+            .next()
+            .ok_or_else(|| format!("Missing value for {option}"))?;
+        if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()) {
+            return Err(format!("{option} requires a positive decimal integer"));
+        }
+        match option.as_str() {
+            "--chain-id" => genesis.chain_id = parse_chain_id(value)?,
+            "--block-gas" => {
+                genesis.capacity.block_gas = value.parse().map_err(|_| "Block gas exceeds u64")?
+            }
+            "--block-bytes" => {
+                genesis.capacity.block_bytes =
+                    value.parse().map_err(|_| "Block bytes exceeds usize")?
+            }
+            "--max-pending" => {
+                genesis.capacity.max_pending =
+                    value.parse().map_err(|_| "Pending count exceeds usize")?
+            }
+            _ => return Err(format!("Unknown genesis option: {option}")),
+        }
+    }
+    genesis.validate()?;
+    Ok((path.into(), genesis))
 }
 
 pub fn parse_checkpoint_bytes(value: &str) -> Result<usize, String> {

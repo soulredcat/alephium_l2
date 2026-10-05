@@ -10,7 +10,7 @@ use super::{
     },
     transition_wire::{
         MAX_CHECKPOINT_WIRE_BYTES, checkpoint_transition_base_bytes,
-        checkpoint_transition_block_bytes, encode_checkpoint_transition,
+        checkpoint_transition_block_bytes_with_capacity, encode_checkpoint_transition,
     },
 };
 use crate::{protocol::Genesis, storage::Store};
@@ -62,6 +62,7 @@ pub fn prepare_transition_checkpoint(
         .ok_or("Checkpoint admission count overflow")?;
     for view in [&source, &target] {
         if view.chain_id() != genesis.chain_id
+            || view.capacity() != genesis.capacity
             || view.head != replay.head
             || view.pending_counter()? != admitted
             || view.state_digest()? != replay.state_digest
@@ -75,6 +76,7 @@ pub fn prepare_transition_checkpoint(
         }
     }
     if checkpoint.chain_id != genesis.chain_id
+        || checkpoint.capacity != genesis.capacity
         || checkpoint.genesis_id != replay.head.genesis_id
         || checkpoint.head.height != batch_start - 1
     {
@@ -95,7 +97,7 @@ pub fn prepare_transition_checkpoint(
         let block = source
             .replay_block(height)?
             .ok_or("Missing retained checkpoint suffix block")?;
-        validate_block(&block, &previous, height)?;
+        validate_block(&block, &previous, height, genesis.capacity)?;
         let mut transactions = Vec::with_capacity(block.transactions.len());
         for (index, hash) in block.transactions.iter().enumerate() {
             if !hashes.insert(*hash) {
@@ -111,7 +113,10 @@ pub fn prepare_transition_checkpoint(
             transactions,
         };
         encoded_bytes = encoded_bytes
-            .checked_add(checkpoint_transition_block_bytes(&exported)?)
+            .checked_add(checkpoint_transition_block_bytes_with_capacity(
+                &exported,
+                genesis.capacity,
+            )?)
             .ok_or("Checkpoint suffix size overflow")?;
         if encoded_bytes > MAX_CHECKPOINT_WIRE_BYTES {
             return Err("Checkpoint suffix exceeds the bounded binary witness size".into());

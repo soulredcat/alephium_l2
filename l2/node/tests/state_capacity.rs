@@ -65,6 +65,8 @@ fn intents_that_would_exceed_the_checkpoint_bound_are_rejected_off_chain() {
         genesis: genesis.clone(),
         min_gas_price: 0,
         max_checkpoint_bytes: limit,
+        rpc: Default::default(),
+        verification_workers_per_cpu: 1,
     };
     let runtime = tokio::runtime::Runtime::new().unwrap();
     let (node, worker) = service::start(&config).unwrap();
@@ -154,6 +156,8 @@ fn oversized_batches_retry_and_resolve_the_oldest_intent_without_blocking_follow
         genesis,
         min_gas_price: 0,
         max_checkpoint_bytes: limit,
+        rpc: Default::default(),
+        verification_workers_per_cpu: 1,
     };
     let runtime = tokio::runtime::Runtime::new().unwrap();
     let (node, worker) = service::start(&config).unwrap();
@@ -211,6 +215,8 @@ fn service_rejects_invalid_capacity_before_opening_storage() {
             genesis: development::genesis(),
             min_gas_price: 0,
             max_checkpoint_bytes: limit,
+            rpc: Default::default(),
+            verification_workers_per_cpu: 1,
         };
         let error = service::start(&config).err().unwrap();
         assert!(error.contains("Checkpoint capacity must be"), "{error}");

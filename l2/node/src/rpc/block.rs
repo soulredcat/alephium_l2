@@ -3,10 +3,7 @@ use super::{
     read::{hash, storage_error},
     transaction,
 };
-use crate::{
-    protocol::{BLOCK_BYTES, BlockInfo},
-    storage::ReadView,
-};
+use crate::{protocol::BlockInfo, storage::ReadView};
 use alloy_consensus::{
     EMPTY_OMMER_ROOT_HASH, Eip658Value, Receipt, ReceiptEnvelope, TxEnvelope,
     proofs::{calculate_receipt_root, calculate_transaction_root},
@@ -87,7 +84,7 @@ fn encode(view: &ReadView, block: &BlockInfo, full: bool) -> Result<Value, RpcEr
                 .len()
                 + 1,
         );
-        if response_bytes > BLOCK_BYTES {
+        if response_bytes > view.capacity().block_bytes {
             return Err("Block exceeds RPC response bound".into());
         }
         transactions.push(value);
@@ -114,7 +111,7 @@ fn encode(view: &ReadView, block: &BlockInfo, full: bool) -> Result<Value, RpcEr
     if serde_json::to_vec(&result)
         .map_err(|_| RpcError::from("Cannot encode block"))?
         .len()
-        > BLOCK_BYTES
+        > view.capacity().block_bytes
     {
         return Err("Block exceeds RPC response bound".into());
     }

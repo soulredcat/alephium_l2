@@ -5,6 +5,11 @@ pub(super) fn encode(checkpoint: &ExecutionCheckpoint) -> Vec<u8> {
     out.extend_from_slice(DOMAIN);
     out.extend(checkpoint.schema.to_be_bytes());
     out.extend(checkpoint.chain_id.to_be_bytes());
+    if !checkpoint.capacity.is_default() {
+        out.extend(checkpoint.capacity.block_gas.to_be_bytes());
+        out.extend((checkpoint.capacity.block_bytes as u64).to_be_bytes());
+        out.extend((checkpoint.capacity.max_pending as u64).to_be_bytes());
+    }
     out.extend_from_slice(checkpoint.genesis_id.as_slice());
     out.extend(checkpoint.head.height.to_be_bytes());
     out.extend(checkpoint.head.timestamp.to_be_bytes());
@@ -48,6 +53,21 @@ pub(super) fn decode(bytes: &[u8]) -> Result<ExecutionCheckpoint, String> {
     }
     let schema = input.u32()?;
     let chain_id = input.u64()?;
+    let capacity = match schema {
+        1 => Capacity::default(),
+        2 => Capacity {
+            block_gas: input.u64()?,
+            block_bytes: usize::try_from(input.u64()?)
+                .map_err(|_| "Checkpoint byte capacity overflow")?,
+            max_pending: usize::try_from(input.u64()?)
+                .map_err(|_| "Checkpoint count capacity overflow")?,
+        },
+        _ => return Err("Unsupported checkpoint capacity schema".into()),
+    };
+    capacity.validate()?;
+    if schema != capacity.checkpoint_schema() {
+        return Err("Noncanonical checkpoint capacity schema".into());
+    }
     let genesis_id = input.hash()?;
     let head = Head {
         height: input.u64()?,
@@ -117,6 +137,7 @@ pub(super) fn decode(bytes: &[u8]) -> Result<ExecutionCheckpoint, String> {
     let checkpoint = ExecutionCheckpoint {
         schema,
         chain_id,
+        capacity,
         genesis_id,
         head,
         accounts,

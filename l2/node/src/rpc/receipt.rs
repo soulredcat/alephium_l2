@@ -1,8 +1,5 @@
 use super::RpcError;
-use crate::{
-    protocol::{BLOCK_BYTES, Receipt},
-    storage::ReadView,
-};
+use crate::{protocol::Receipt, storage::ReadView};
 use alloy_primitives::Bloom;
 use serde_json::{Value, json};
 
@@ -29,7 +26,7 @@ pub(super) fn encode(view: &ReadView, receipt: &Receipt) -> Result<Value, RpcErr
     for (index, log) in receipt.logs.iter().enumerate() {
         result_bytes =
             result_bytes.saturating_add(log.data.len() * 2 + log.topics.len() * 66 + 512);
-        if result_bytes > BLOCK_BYTES {
+        if result_bytes > view.capacity().block_bytes {
             return Err("Receipt logs exceed RPC response bound".into());
         }
         bloom.accrue_raw_log(log.address, &log.topics);
@@ -44,7 +41,7 @@ pub(super) fn encode(view: &ReadView, receipt: &Receipt) -> Result<Value, RpcErr
     if serde_json::to_vec(&result)
         .map_err(|_| RpcError::from("Cannot encode receipt"))?
         .len()
-        > BLOCK_BYTES
+        > view.capacity().block_bytes
     {
         return Err("Receipt exceeds RPC response bound".into());
     }

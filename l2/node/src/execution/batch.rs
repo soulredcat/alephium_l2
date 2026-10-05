@@ -1,8 +1,8 @@
 use super::{changes::Changes, database::ReadError, database::ViewDatabase, transaction};
-use crate::protocol::{AccountChange, BLOCK_GAS, BlockContext, EventLog, Receipt};
+use crate::protocol::{AccountChange, BlockContext, EventLog, Receipt, TransactionInfo};
 use crate::storage::ReadView;
 use alloy_primitives::{B256, U256, keccak256};
-use revm::context::{BlockEnv, result::EVMError};
+use revm::context::{BlockEnv, TxEnv, result::EVMError};
 use revm::context_interface::transaction::Transaction;
 use revm::database::CacheDB;
 use revm::handler::MainnetContext;
@@ -18,7 +18,7 @@ pub struct ExecutionBatch {
 }
 
 pub(super) fn engine(view: ReadView, context: BlockContext) -> Result<Engine, String> {
-    if context.gas_limit == 0 || context.gas_limit > BLOCK_GAS {
+    if context.gas_limit == 0 || context.gas_limit > view.capacity().block_gas {
         return Err("block gas limit is outside the development profile".into());
     }
     let chain_id = view.chain_id();
@@ -55,17 +55,33 @@ pub fn execute_block(
     context: BlockContext,
 ) -> Result<ExecutionBatch, String> {
     let chain_id = view.chain_id();
+    execute_decoded(
+        view,
+        inputs
+            .iter()
+            .map(|raw| transaction::decode(raw, chain_id).map_err(|error| (keccak256(raw), error))),
+        inputs.len(),
+        context,
+    )
+}
+
+pub(super) fn execute_decoded(
+    view: ReadView,
+    inputs: impl Iterator<Item = Result<(TxEnv, TransactionInfo), (B256, String)>>,
+    count: usize,
+    context: BlockContext,
+) -> Result<ExecutionBatch, String> {
     let mut evm = engine(view, context)?;
     let mut changes = Changes::default();
-    let mut receipts = Vec::with_capacity(inputs.len());
+    let mut receipts = Vec::with_capacity(count);
     let mut rejected = Vec::new();
     let mut cumulative_gas = 0_u64;
     let mut first_log_index = 0_u64;
-    for raw in inputs {
-        let (tx, info) = match transaction::decode(raw, chain_id) {
+    for input in inputs {
+        let (tx, info) = match input {
             Ok(decoded) => decoded,
             Err(error) => {
-                rejected.push((keccak256(raw), error));
+                rejected.push(error);
                 continue;
             }
         };

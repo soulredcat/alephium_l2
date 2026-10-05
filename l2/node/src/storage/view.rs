@@ -3,7 +3,7 @@ use super::{
     encoding::{key, slot_key},
     records,
 };
-use crate::protocol::{Account, Head, MAX_TRANSACTION_BYTES, Receipt, TransactionStatus};
+use crate::protocol::{Account, Capacity, Head, MAX_TRANSACTION_BYTES, Receipt, TransactionStatus};
 use alloy_primitives::{Address, B256, U256, keccak256};
 use fjall::{Keyspace, Readable, Snapshot};
 use sha2::{Digest, Sha256};
@@ -20,6 +20,7 @@ use std::{
 pub struct ReadView {
     pub head: Head,
     pub(super) chain_id: u64,
+    pub(super) profile_capacity: Capacity,
     // Recovery verified every index at open; each later atomic commit adds one.
     pub(super) block_index_complete: bool,
     pub(super) snapshot: Snapshot,
@@ -31,6 +32,11 @@ impl ReadView {
     /// Validated against the persisted canonical genesis before publication.
     pub fn chain_id(&self) -> u64 {
         self.chain_id
+    }
+
+    /// Immutable limits authenticated by the persisted canonical genesis.
+    pub fn capacity(&self) -> Capacity {
+        self.profile_capacity
     }
 
     pub fn pending_counter(&self) -> Result<u64, String> {
@@ -50,7 +56,7 @@ impl ReadView {
         let mut count = 0usize;
         for entry in self.snapshot.prefix(&self.items, [0x23]) {
             count += 1;
-            if count > crate::protocol::MAX_PENDING {
+            if count > self.capacity().max_pending {
                 return Err("Pending queue exceeds bound".into());
             }
             let (key, bytes) = entry.into_inner().map_err(super::engine_error)?;
@@ -144,7 +150,7 @@ impl ReadView {
         let Some(bytes) = self.get(key(0x30, &height.to_be_bytes()))? else {
             return Ok(B256::ZERO);
         };
-        let block = block::decode(&bytes)?;
+        let block = block::decode_with_capacity(&bytes, self.capacity())?;
         if block.head.height != height || height > self.head.height {
             return Err("inconsistent block identity".into());
         }

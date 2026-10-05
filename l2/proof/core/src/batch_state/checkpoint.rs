@@ -1,5 +1,5 @@
 use super::FullState;
-use crate::protocol::{Account, Head, checkpoint::*};
+use crate::protocol::{Account, Capacity, Head, checkpoint::*};
 use alloy_primitives::{B256, keccak256};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -58,6 +58,7 @@ impl FullState {
         chain_id: u64,
         genesis_id: B256,
         head: &Head,
+        capacity: Capacity,
     ) -> Result<ExecutionCheckpoint, String> {
         if chain_id != self.chain_id
             || genesis_id != self.genesis_id
@@ -104,8 +105,9 @@ impl FullState {
             })
             .collect::<Result<_, _>>()?;
         let checkpoint = ExecutionCheckpoint {
-            schema: CHECKPOINT_SCHEMA,
+            schema: capacity.checkpoint_schema(),
             chain_id,
+            capacity,
             genesis_id,
             head: head.clone(),
             accounts,

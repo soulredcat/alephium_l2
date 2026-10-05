@@ -15,7 +15,7 @@ pub(super) struct ParsedCall {
     pub fee_cap: u128,
 }
 
-pub(super) fn parse(input: &Value) -> Result<ParsedCall, RpcError> {
+pub(super) fn parse(input: &Value, block_gas: u64) -> Result<ParsedCall, RpcError> {
     let params = parameters(input, 1, 2)?;
     latest(params, 1)?;
     let object = params[0].as_object().ok_or("Expected call object")?;
@@ -50,8 +50,8 @@ pub(super) fn parse(input: &Value) -> Result<ParsedCall, RpcError> {
         })
         .transpose()?
         .unwrap_or_default();
-    let gas_limit = number(object, "gas")?.unwrap_or(U256::from(BLOCK_GAS));
-    if gas_limit.is_zero() || gas_limit > U256::from(BLOCK_GAS) {
+    let gas_limit = number(object, "gas")?.unwrap_or(U256::from(block_gas));
+    if gas_limit.is_zero() || gas_limit > U256::from(block_gas) {
         return Err("Call gas out of bounds".into());
     }
     let (gas_price, fee_cap) = fees(object)?;
@@ -144,12 +144,12 @@ pub(super) fn context(view: &ReadView) -> BlockContext {
     BlockContext {
         number: view.head.height,
         timestamp: view.head.timestamp,
-        gas_limit: BLOCK_GAS,
+        gas_limit: view.capacity().block_gas,
     }
 }
 
-pub(super) fn failure(result: &CallResult) -> RpcError {
-    if result.output.len() > BLOCK_BYTES / 2 {
+pub(super) fn failure(result: &CallResult, block_bytes: usize) -> RpcError {
+    if result.output.len() > block_bytes / 2 {
         return "Call result exceeds RPC response bound".into();
     }
     RpcError {
@@ -165,12 +165,13 @@ pub(super) fn failure(result: &CallResult) -> RpcError {
 }
 
 pub(super) fn query(view: Arc<ReadView>, input: &Value) -> Result<Value, RpcError> {
-    let request = parse(input)?.request;
+    let capacity = view.capacity();
+    let request = parse(input, capacity.block_gas)?.request;
     let result = execution::simulate((*view).clone(), request, context(&view))?;
     if !result.success {
-        return Err(failure(&result));
+        return Err(failure(&result, capacity.block_bytes));
     }
-    if result.output.len() > BLOCK_BYTES / 2 {
+    if result.output.len() > capacity.block_bytes / 2 {
         return Err("Call result exceeds RPC response bound".into());
     }
     Ok(json!(format!("0x{}", hex::encode(result.output))))

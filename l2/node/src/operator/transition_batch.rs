@@ -10,7 +10,7 @@ use super::{
 };
 use crate::{
     execution,
-    protocol::{BLOCK_GAS, Genesis, Head, ReplayBlock},
+    protocol::{Capacity, Genesis, Head, ReplayBlock},
     storage::{ReadView, Store},
 };
 use alloy_primitives::B256;
@@ -114,6 +114,7 @@ fn validated_bundle(
         .ok_or("Batch admission count overflow")?;
     for view in [source, target] {
         if view.chain_id() != genesis.chain_id
+            || view.capacity() != genesis.capacity
             || view.head != replay.head
             || view.pending_counter()? != admitted
             || view.state_digest()? != replay.state_digest
@@ -141,7 +142,7 @@ fn validated_bundle(
         let block = source
             .replay_block(height)?
             .ok_or("Missing retained batch block")?;
-        validate_block(&block, &previous, height)?;
+        validate_block(&block, &previous, height, genesis.capacity)?;
         let mut transactions = Vec::with_capacity(block.transactions.len());
         for (index, hash) in block.transactions.iter().enumerate() {
             if !hashes.insert(*hash) {
@@ -189,15 +190,18 @@ pub(super) fn validate_block(
     block: &ReplayBlock,
     parent: &Head,
     height: u64,
+    capacity: Capacity,
 ) -> Result<(), String> {
+    capacity.validate()?;
     if block.parent != *parent
         || block.head.height != height
         || block.head.genesis_id != parent.genesis_id
         || block.context.number != height
         || block.context.timestamp != block.head.timestamp
         || block.context.timestamp < parent.timestamp
-        || block.context.gas_limit != BLOCK_GAS
+        || block.context.gas_limit != capacity.block_gas
         || block.transactions.is_empty()
+        || block.transactions.len() > capacity.max_pending
         || block.transactions.len() != block.receipts.len()
         || !block.rejected.is_empty()
     {

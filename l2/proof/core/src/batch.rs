@@ -27,7 +27,7 @@ pub fn prove_batch_transition(
     if bundle.parent != genesis || bundle.genesis_id != genesis.genesis_id {
         return Err("batch witness must start from complete canonical genesis".into());
     }
-    let profile = journal::profile_commitment()?;
+    let profile = journal::profile_commitment(bundle.genesis.capacity)?;
     let mut state = FullState::genesis(&bundle.genesis)?;
     state.commit_head(&genesis)?;
     let mut head = genesis;
@@ -42,7 +42,13 @@ pub fn prove_batch_transition(
                 state.total_balance()?,
             ));
         }
-        let (derived, receipts) = execute_retained(&mut state, bundle.chain_id, &head, input)?;
+        let (derived, receipts) = execute_retained(
+            &mut state,
+            bundle.chain_id,
+            &head,
+            input,
+            bundle.genesis.capacity,
+        )?;
         if input.context.number >= bundle.batch_start {
             commitments.include(&input.context, &receipts)?;
         }

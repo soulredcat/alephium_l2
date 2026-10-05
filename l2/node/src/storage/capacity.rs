@@ -52,6 +52,8 @@ fn live_code(hash: B256) -> bool {
 impl Capacity {
     pub(super) fn scan(view: &ReadView, limit: usize) -> Result<Self, String> {
         let checkpoint = view.execution_checkpoint()?;
+        // The real encoding includes the custom profile's 24-byte extension;
+        // incrementally changing state must retain that fixed header cost.
         let bytes = checkpoint.encode()?.len();
         if with_history_reserve(bytes, view.head.height)? > limit {
             return Err(

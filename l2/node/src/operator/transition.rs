@@ -6,7 +6,7 @@ use super::{
 };
 use crate::{
     execution,
-    protocol::{BLOCK_GAS, Genesis},
+    protocol::{BLOCK_GAS, Capacity, Genesis},
     storage::{ReadView, Store},
 };
 use alloy_primitives::B256;
@@ -29,6 +29,12 @@ pub fn prepare_transition(
     work: &Path,
 ) -> Result<TransitionReport, String> {
     genesis.validate()?;
+    if genesis.capacity != Capacity::default() {
+        return Err(
+            "Legacy single-transfer export requires the default capacity; use a batch export"
+                .into(),
+        );
+    }
     let backup = files::existing_directory(backup)?;
     preflight(&backup, genesis, 1)?;
     let replay = verify_replay(&backup, genesis, work)?;
@@ -121,6 +127,8 @@ fn validated_bundle(
         .ok_or("Transition admission count overflow")?;
     if source.chain_id() != genesis.chain_id
         || target.chain_id() != genesis.chain_id
+        || source.capacity() != genesis.capacity
+        || target.capacity() != genesis.capacity
         || source.head != replay.head
         || target.head != replay.head
         || source.head.height != 1

@@ -5,13 +5,13 @@ use serde_json::{Value, json};
 use std::sync::Arc;
 
 const MAX_PROBES: usize = 16;
-const MAX_DECLARED_GAS: u64 = 90_000_000;
 const CALL_STIPEND: u64 = 2_300;
 
 /// Returns a gas limit which succeeded on this one committed view, not the gas
 /// consumed or a promise for future state. The bounded search may overestimate.
 pub(super) fn query(view: Arc<ReadView>, input: &Value) -> Result<Value, RpcError> {
-    let mut parsed = call::parse(input)?;
+    let capacity = view.capacity();
+    let mut parsed = call::parse(input, capacity.block_gas)?;
     let balance = view
         .account(parsed.request.from)
         .map_err(storage_error)?
@@ -31,7 +31,7 @@ pub(super) fn query(view: Arc<ReadView>, input: &Value) -> Result<Value, RpcErro
     let context = call::context(&view);
     let upper = execution::simulate((*view).clone(), parsed.request.clone(), context)?;
     if !upper.success {
-        return Err(call::failure(&upper));
+        return Err(call::failure(&upper, capacity.block_bytes));
     }
     let mut high = parsed.request.gas_limit;
     // A limit below the post-refund gas used always fails, so it is a valid
@@ -61,10 +61,10 @@ pub(super) fn query(view: Arc<ReadView>, input: &Value) -> Result<Value, RpcErro
             .copied()
             .filter(|hint| *hint > low && *hint < high)
             .unwrap_or(low + (high - low) / 2);
-        if consumed_budget.saturating_add(probe) > MAX_DECLARED_GAS {
+        if consumed_budget.saturating_add(probe) > capacity.block_gas.saturating_mul(3) {
             break;
         }
-        consumed_budget += probe;
+        consumed_budget = consumed_budget.saturating_add(probe);
         let request = CallRequest {
             gas_limit: probe,
             ..parsed.request.clone()

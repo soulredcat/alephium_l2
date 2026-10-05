@@ -1,15 +1,16 @@
 use super::{
     Store,
     block::{self, StoredChange},
-    encoding::{Decoder, Encoder, key, slot_key},
+    encoding::{Decoder, key, slot_key},
     records,
 };
-use crate::protocol::{
-    Account, BlockCommit, MAX_PENDING, MAX_TRANSACTION_BYTES, Pending, TransactionStatus,
-};
-use alloy_primitives::{B256, keccak256};
+use crate::protocol::{Account, BlockCommit, Pending, TransactionStatus};
+use alloy_primitives::B256;
 use fjall::Readable;
 use std::collections::{BTreeMap, BTreeSet};
+
+#[path = "admission.rs"]
+mod admission;
 
 impl Store {
     pub fn pending(&self) -> Result<Vec<Pending>, String> {
@@ -27,7 +28,7 @@ impl Store {
         let mut senders = BTreeSet::new();
         for item in view.snapshot.prefix(&view.items, [0x23]) {
             let (key, value) = item.into_inner().map_err(super::engine_error)?;
-            if key.len() != 9 || pending.len() >= MAX_PENDING {
+            if key.len() != 9 || pending.len() >= self.capacity().max_pending {
                 return Err("invalid durable pending queue".into());
             }
             let ordinal = u64::from_be_bytes(key[1..].try_into().unwrap());
@@ -48,55 +49,6 @@ impl Store {
             pending.push((ordinal, Pending { hash, sender, raw }));
         }
         Ok(pending)
-    }
-
-    pub fn admit(&mut self, pending: Pending) -> Result<TransactionStatus, String> {
-        self.check()?;
-        if pending.raw.is_empty()
-            || pending.raw.len() > MAX_TRANSACTION_BYTES
-            || keccak256(&pending.raw) != pending.hash
-        {
-            return Err("invalid pending transaction identity or size".into());
-        }
-        let view = self.view()?;
-        if let Some(existing) = view.status(pending.hash)? {
-            if view.raw_transaction(pending.hash)?.as_deref() != Some(pending.raw.as_slice()) {
-                return Err("conflicting canonical transaction identity".into());
-            }
-            return Ok(existing);
-        }
-        let queue = self.pending_records()?;
-        if queue.len() >= MAX_PENDING || queue.iter().any(|(_, item)| item.sender == pending.sender)
-        {
-            return Err("pending capacity or sender reservation exceeded".into());
-        }
-        let counter = view.get([0x03])?.ok_or("missing pending ordinal")?;
-        if counter.len() != 8 {
-            return Err("malformed pending ordinal".into());
-        }
-        let ordinal = u64::from_be_bytes(counter.try_into().unwrap())
-            .checked_add(1)
-            .ok_or("pending ordinal exhausted")?;
-        let mut record = Encoder::default();
-        record.hash(pending.hash);
-        record.address(pending.sender);
-        let status = TransactionStatus {
-            hash: pending.hash,
-            status: "durably_accepted".into(),
-            block_height: None,
-            error: None,
-        };
-        let mut batch = self.batch()?;
-        batch.insert(&self.items, key(0x20, pending.hash.as_slice()), pending.raw);
-        batch.insert(
-            &self.items,
-            key(0x21, pending.hash.as_slice()),
-            records::encode_status(&status)?,
-        );
-        batch.insert(&self.items, key(0x23, &ordinal.to_be_bytes()), record.0);
-        batch.insert(&self.items, vec![0x03], ordinal.to_be_bytes().to_vec());
-        self.finish(batch)?;
-        Ok(status)
     }
 
     pub fn commit(&mut self, commit: BlockCommit) -> Result<super::ReadView, String> {
@@ -140,7 +92,7 @@ impl Store {
         if self.latest_head()? != commit.parent {
             return Err("commit parent is stale".into());
         }
-        block::validate(&commit)?;
+        block::validate_with_capacity(&commit, self.capacity())?;
         let view = self.view()?;
         let pending: BTreeMap<_, _> = self
             .pending_records()?
@@ -161,12 +113,13 @@ impl Store {
                 return Err("receipt sender differs from durable intent".into());
             }
         }
-        block::logical_bytes(
+        block::logical_bytes_with_capacity(
             &commit,
             commit
                 .transactions
                 .iter()
                 .map(|hash| pending[hash].1.raw.as_slice()),
+            self.capacity(),
         )?;
         commit.changes.sort_by_key(|change| change.address);
         let new_codes: BTreeMap<_, _> = commit
@@ -198,7 +151,7 @@ impl Store {
             }
             changes.push(StoredChange { change, epoch });
         }
-        let (head, record) = block::encode(&commit, &changes)?;
+        let (head, record) = block::encode_with_capacity(&commit, &changes, self.capacity())?;
         let capacity = match &self.capacity {
             Some(capacity) => {
                 let next = capacity.after(&view, &changes, head.height)?;

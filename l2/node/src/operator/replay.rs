@@ -2,7 +2,7 @@ use super::{backup::materialize_backup, files, types::ReplayReport};
 use crate::protocol::checkpoint::ExecutionCheckpoint;
 use crate::{
     execution,
-    protocol::{BLOCK_GAS, BlockCommit, Genesis, Head, MAX_PENDING, Pending, ReplayBlock},
+    protocol::{BlockCommit, Genesis, Head, Pending, ReplayBlock},
     storage::{ReadView, Store},
 };
 use alloy_primitives::B256;
@@ -254,7 +254,8 @@ fn admit(target: &mut Store, intent: Pending) -> Result<(), String> {
 }
 
 fn validate_pending(view: &ReadView, pending: &[Pending]) -> Result<(), String> {
-    if pending.len() > MAX_PENDING {
+    let capacity = view.capacity();
+    if pending.len() > capacity.max_pending {
         return Err("Replay pending queue exceeds profile".into());
     }
     for intent in pending {
@@ -264,7 +265,7 @@ fn validate_pending(view: &ReadView, pending: &[Pending]) -> Result<(), String> 
         }
         let info = execution::inspect_for_chain(&intent.raw, view.chain_id())
             .map_err(|_| "Invalid pending signed envelope")?;
-        if info.gas_limit == 0 || info.gas_limit > BLOCK_GAS {
+        if info.gas_limit == 0 || info.gas_limit > capacity.block_gas {
             return Err("Pending gas limit exceeds the development profile".into());
         }
         view.pending_nonce(intent.sender)?;

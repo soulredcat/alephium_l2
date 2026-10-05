@@ -1,6 +1,6 @@
 use super::{BackupManifest, BackupReport, files};
 use crate::{
-    protocol::{Genesis, MAX_PENDING, validate_chain_id},
+    protocol::{Genesis, validate_chain_id},
     storage::Store,
 };
 use std::{
@@ -132,7 +132,9 @@ fn read_manifest(root: &Path) -> Result<BackupManifest, String> {
 fn validate_manifest(manifest: &BackupManifest) -> Result<(), String> {
     validate_chain_id(manifest.chain_id)?;
     if manifest.schema != BACKUP_SCHEMA
-        || manifest.pending_count > MAX_PENDING
+        // The untrusted manifest is not an execution profile. The actual queue
+        // is validated against its genesis capacity when opening the copy.
+        || manifest.pending_count > u32::MAX as usize
         || manifest.files.is_empty()
         || manifest.files.len() > files::MAX_FILES
     {

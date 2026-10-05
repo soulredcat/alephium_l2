@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "updated": "2026-10-05",
+  "updated": "2026-10-06",
   "scope": "Portable continuation status; original handoff evidence retained with scoped PR review updates",
   "status": "mainnet-implementation-and-proving-paused; scoped-PR-review-authorized",
   "mainnet_complete": false,
@@ -167,5 +167,33 @@
     "existing_nodes_replaced": false,
     "guest_receipt_generated": false,
     "settlement_accepted": false
+  },
+  "runtime_resource_publication": {
+    "scope": "node, SDK and required shared-capacity core source; paused factory/prover work excluded",
+    "default_factor": 1,
+    "cpu_formula": "max(1,available logical CPUs-1)",
+    "observed_logical_cpus": 16,
+    "observed_default_workers": 15,
+    "valid_supported_overload_policy": "queue; durable ACK without admission fee",
+    "immutable_signature_cache": "raw/chain/hash/sender-bound; current state validated",
+    "storage_durability": "atomic SyncAll unchanged",
+    "comparison_profile": "release;300M block gas;8MiB payload;10000 pending;200ms scheduling target",
+    "comparison_data_drive": "E:",
+    "comparison_storage": "Samsung SSD 860 EVO 250GB SATA",
+    "old_C_TEMP_comparisons_excluded": true,
+    "single_burst_counts": [
+      100,
+      1000,
+      10000
+    ],
+    "all_default_original_next_block_receipts": true,
+    "receipt_p99_10000_ms": 488,
+    "receipt_max_10000_ms": 489,
+    "process_peak_10000_mib": 82.18,
+    "factor10_late_10000": 320,
+    "factor10_is_default": false,
+    "ten_round_extension": "cancelled",
+    "new_profile_guest_acceptance": false,
+    "gpu_execution_implemented": false
   }
 }

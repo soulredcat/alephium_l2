@@ -6,7 +6,7 @@ use crate::{
     batch_state::FullState,
     encoding::{Encoder, MAX_RECORD},
     execution::private_envelope,
-    protocol::{MAX_PENDING, checkpoint::ExecutionCheckpoint},
+    protocol::{Capacity, checkpoint::ExecutionCheckpoint},
 };
 use alloy_primitives::B256;
 use serde::Serialize;
@@ -24,11 +24,16 @@ pub struct CheckpointTransitionOutput {
 }
 
 pub fn checkpoint_profile() -> Result<B256, String> {
+    checkpoint_profile_with_capacity(Capacity::default())
+}
+
+pub fn checkpoint_profile_with_capacity(capacity: Capacity) -> Result<B256, String> {
+    capacity.validate()?;
     let mut out = Encoder::default();
     out.bytes(b"alephium-l2/checkpoint-execution-profile/v3")?;
     out.bytes(CHECKPOINT_SCOPE.as_bytes())?;
-    out.hash(journal::profile_commitment()?);
-    out.u32(crate::protocol::checkpoint::CHECKPOINT_SCHEMA);
+    out.hash(journal::profile_commitment(capacity)?);
+    out.u32(capacity.checkpoint_schema());
     out.u64(MAX_TRANSITION_BLOCKS);
     out.u64(crate::protocol::checkpoint::MAX_CHECKPOINT_BYTES as u64);
     out.u64(crate::MAX_CONTINUATION_CHECKPOINT_BYTES as u64);
@@ -57,7 +62,7 @@ pub fn prove_checkpoint_transition(
     {
         return Err("unsupported checkpoint transition profile or suffix bounds".into());
     }
-    let profile = checkpoint_profile()?;
+    let profile = checkpoint_profile_with_capacity(checkpoint.capacity)?;
     let root = |checkpoint: &ExecutionCheckpoint| {
         checkpoint.root(
             profile,
@@ -75,7 +80,13 @@ pub fn prove_checkpoint_transition(
     let mut head = parent.clone();
     let mut commitments = Commitments::new()?;
     for block in &bundle.blocks {
-        let (derived, receipts) = execute_retained(&mut state, checkpoint.chain_id, &head, block)?;
+        let (derived, receipts) = execute_retained(
+            &mut state,
+            checkpoint.chain_id,
+            &head,
+            block,
+            checkpoint.capacity,
+        )?;
         commitments.include(&block.context, &receipts)?;
         head = derived;
     }
@@ -84,7 +95,12 @@ pub fn prove_checkpoint_transition(
         return Err("checkpoint suffix differs from retained runtime output".into());
     }
     // This also enforces the resulting checkpoint bound, not only input bounds.
-    let next = state.checkpoint(checkpoint.chain_id, checkpoint.genesis_id, &head)?;
+    let next = state.checkpoint(
+        checkpoint.chain_id,
+        checkpoint.genesis_id,
+        &head,
+        checkpoint.capacity,
+    )?;
     checkpoint_bytes(&next)?;
     let new_state_root = root(&next)?;
     let (transactions_commitment, context_commitment, receipts_commitment, executed_transactions) =
@@ -141,14 +157,23 @@ pub fn checkpoint_batch_data(bundle: &CheckpointTransitionBundle) -> Result<Vec<
     let mut out = Encoder::default();
     out.bytes(b"alephium-l2/reconstruction/checkpoint-suffix/v3")?;
     journal::encode_domain(&mut out, &bundle.domain);
-    out.hash(checkpoint_profile()?);
+    out.hash(checkpoint_profile_with_capacity(
+        bundle.checkpoint.capacity,
+    )?);
     out.bytes(&checkpoint_bytes(&bundle.checkpoint)?)?;
     out.u64(bundle.blocks.len() as u64);
     for block in &bundle.blocks {
+        crate::transition_wire::checkpoint_transition_block_bytes_with_capacity(
+            block,
+            bundle.checkpoint.capacity,
+        )?;
         out.u64(block.context.number);
         out.u64(block.context.timestamp);
         out.u64(block.context.gas_limit);
-        if block.transactions.is_empty() || block.transactions.len() > MAX_PENDING {
+        if block.context.gas_limit != bundle.checkpoint.capacity.block_gas
+            || block.transactions.is_empty()
+            || block.transactions.len() > bundle.checkpoint.capacity.max_pending
+        {
             return Err("checkpoint data transaction count exceeds bound".into());
         }
         out.u32(block.transactions.len() as u32);
@@ -179,9 +204,12 @@ fn validate_transport(bundle: &CheckpointTransitionBundle) -> Result<(), String>
     )?;
     for block in &bundle.blocks {
         size = size
-            .checked_add(crate::transition_wire::checkpoint_transition_block_bytes(
-                block,
-            )?)
+            .checked_add(
+                crate::transition_wire::checkpoint_transition_block_bytes_with_capacity(
+                    block,
+                    bundle.checkpoint.capacity,
+                )?,
+            )
             .ok_or("checkpoint transition size overflow")?;
         if size > crate::MAX_CHECKPOINT_WIRE_BYTES {
             return Err("checkpoint transition exceeds its complete binary input bound".into());

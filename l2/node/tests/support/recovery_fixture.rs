@@ -19,7 +19,9 @@ pub(super) fn context(number: u64) -> BlockContext {
 
 pub(super) fn admit(store: &mut Store, raw: &[u8], number: u64) -> Result<B256, String> {
     let info = execution::inspect(raw)?;
-    let validated = execution::validate(store.view()?, raw, context(number))?;
+    let mut block_context = context(number);
+    block_context.gas_limit = store.capacity().block_gas;
+    let validated = execution::validate(store.view()?, raw, block_context)?;
     assert_eq!(validated.hash, info.hash);
     assert_eq!(validated.sender, info.sender);
     let status = store.admit(Pending {
@@ -39,12 +41,14 @@ pub(super) fn commit(
 ) -> Result<Vec<Receipt>, String> {
     let view = store.view()?;
     let parent = view.head.clone();
-    let result = execution::execute_block(view, inputs, context(number))?;
+    let mut block_context = context(number);
+    block_context.gas_limit = view.capacity().block_gas;
+    let result = execution::execute_block(view, inputs, block_context)?;
     assert!(result.rejected.is_empty());
     assert_eq!(result.receipts.len(), inputs.len());
     let view = store.commit(BlockCommit {
         parent,
-        context: context(number),
+        context: block_context,
         transactions: result.receipts.iter().map(|receipt| receipt.hash).collect(),
         changes: result.changes,
         receipts: result.receipts,
