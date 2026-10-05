@@ -1,6 +1,10 @@
-# Alephium EVM Development Runtime
+# Alephium EVM L2
 
-A standalone Rust EVM development node and Rust SDK. The node executes supported EVM transactions and contract deployments, persists state and receipts, and exposes a bounded JSON-RPC interface. **Alephium settlement, a live bridge, and mainnet operation are not implemented by this package. This is development software, not a production-ready rollup.**
+Rust EVM development runtime, SDK, transition-proof work, and Ralph verifier tooling for an independent Alephium EVM L2. The node executes supported transactions and contracts with durable state/receipts and bounded JSON-RPC. **Mainnet is not complete: actual L2 settlement, bridge/recovery, release audit, and authorized launch remain open.**
+
+**AI continuation starts at [docs/HANDOFF.md](docs/HANDOFF.md).** It is the single handoff document: checked versus unchecked work, the fixed P4-P8 checklist, reproduction steps, and operational restrictions. [handoff/status.json](handoff/status.json) contains curated recorded outcomes and artifact pins. Implementation/proving was paused by the operator; this source handoff does not resume it or authorize live operations.
+
+Development uses topic branches and pull requests. The implementation AI submits scoped changes; the designated reviewing assistant tests/reviews, then merges passing PRs to `main` so they close automatically. Failed PRs remain open with actionable findings. Do not push implementation work directly to `main`; merging a handoff does not establish mainnet acceptance.
 
 ## Workspace
 
@@ -8,9 +12,12 @@ A standalone Rust EVM development node and Rust SDK. The node executes supported
 | --- | --- |
 | `l2/node` | Sequential EVM execution, durable storage, RPC, development helpers, offline operator commands, and integration tests. |
 | `l2/sdk` | Blocking Rust client with pinned chain/genesis identity, transaction preparation, one-time submission, and receipt reconciliation. |
+| `l2/proof` | Independent workspace containing shared transition core, RISC0 guest, proof host, and official guest packaging helper. Current checkpoint guest acceptance is unfinished. |
+| `l2/verifier-tool` | Rust offline compiler integration and bounded synthetic Ralph verifier/factory checks. |
+| `l2/contracts/alephium/verifier` | Arithmetic, receipt verification, and canonical staged factory sources; not a deployed settlement or bridge. |
 | `l2/node/fixtures` | Pinned third-party EVM reference data and a historical verifier compatibility fixture, with sources and licenses. |
 
-This package contains the runtime and SDK. It does not include a transition prover, Alephium verifier service, settlement contracts, or an existing chain database. The node's transition-export commands export development execution inputs; exporting them does not generate or settle a proof.
+The root workspace contains node, SDK, and verifier tool. `l2/proof` has its own workspace, lockfile, and target configuration; run its commands from that directory. The latest paused source is included, including work that still needs compilation or acceptance as identified in the handoff. Existing chain databases, private witnesses, incomplete proof output, tool binaries and historical planning archives are excluded. Exporting execution inputs does not itself generate or settle a proof.
 
 The toolchain is pinned to Rust `1.97.1`. Core dependencies include REVM `43.0.3`, Fjall `3.1.12`, Alloy consensus/signing `2.5.0`, and Alloy primitives `1.6.0`; `Cargo.lock` pins the resolved dependency graph. First-party implementation is Rust. The enabled secp256k1 dependency includes native C code, so an appropriate native build toolchain is also required.
 
@@ -80,7 +87,7 @@ Get-ChildItem Env:L2_SMOKE_* | Remove-Item
 cargo test -p alephium-l2-node --locked --test smoke
 ```
 
-Other existing focused integration targets include `identity`, `sdk`, `wallet`, `recovery`, `lifecycle`, `transition`, `precompile_transition`, and `risc0_oracle`. Run the affected target when changing its behavior. SDK unit checks use `cargo test -p alephium-l2-sdk --locked`. Tests and public fixture vectors provide bounded evidence; they are not a full Ethereum conformance suite or a production audit.
+Other focused integration targets include `identity`, `sdk`, `wallet`, `recovery`, `lifecycle`, `transition`, `precompile_transition`, and `risc0_oracle`. `checkpoint_transition` is ignored by default and requires the generated immutable fixture described in the handoff. Run affected targets when changing behavior. SDK unit checks use `cargo test -p alephium-l2-sdk --locked`. Tests and public fixture vectors provide bounded evidence; they are not a full Ethereum conformance suite or a production audit.
 
 ## Fixture provenance and licenses
 
@@ -88,7 +95,9 @@ The Ethereum reference fixture in `l2/node/fixtures/reference` is unchanged data
 
 The historical receipt oracle in `l2/node/fixtures/risc0-groth16` retains nine unchanged Solidity files from [RISC Zero Ethereum revision `365e7b2db4f620fa256580c27558d2623362b9ae`](https://github.com/risc0/risc0-ethereum/tree/365e7b2db4f620fa256580c27558d2623362b9ae) and [OpenZeppelin revision `acd4ff74de833399287ed6b31b4debf6b2b35527`](https://github.com/OpenZeppelin/openzeppelin-contracts/tree/acd4ff74de833399287ed6b31b4debf6b2b35527). `sources.json` records exact source URLs, hashes, lengths, and licenses. Two Groth16 verifier files carry GPL-3.0 notices; other RISC Zero files are Apache-2.0, and OpenZeppelin SafeCast is MIT. Original notices and the separate `LICENSE-GPL-3.0`, `LICENSE-APACHE-2.0`, and `LICENSE-MIT-OPENZEPPELIN` texts are retained. These third-party licenses do not declare a license for all first-party code.
 
-The committed `artifact.json` is required by the EVM oracle test. It contains a public historical receipt, not a proof authorizing this L2's transitions. Public signed transaction/proof vectors are fixture data; tools should not print signatures, signing material, signed envelopes, or proof payloads.
+Ralph arithmetic derives from Gnark revision `703a260c2f991d01e245adf53d20f76af4210c5f` and retains its Apache-2.0 notices/license. Receipt/key/factory compositions and certain verifier-tool files carry GPL-3.0-or-later headers; the retained GPL license is in the node oracle fixture. Preserve each source notice rather than assigning one license to all authored or derived code. The Ralph compiler uses Scala/JVM, and proof generation uses external native tooling/Docker; the complete dependency stack is not claimed to be pure Rust.
+
+The committed `artifact.json` is required by the EVM oracle test and verifier-tool. It contains a public historical receipt, not a proof authorizing this L2's transitions. Public signed transaction/proof vectors are fixture data; tools should not print signatures, signing material, signed envelopes, or proof payloads.
 
 Normal builds and tests do not require Solidity compilation. Optional rebuilding uses `examples/compile_risc0_oracle.rs` with an externally supplied, hash-pinned Windows solc `0.8.30+commit.73712a01.Windows.msvc` binary (SHA-256 `ccbd3ed44d5fbd26fe039702d403421f1212d2e8752e3cbe3bfd074986911586`):
 

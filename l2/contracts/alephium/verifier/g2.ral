@@ -1,0 +1,168 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2020 Consensys Software Inc. (Gnark Crypto reference).
+// Licensed under the Apache License, Version 2.0; retained text in this directory.
+// Formulas translated from Gnark Crypto revision
+// 703a260c2f991d01e245adf53d20f76af4210c5f, ecc/bn254/g2.go:
+// FromAffine, FromJacobian, AddAssign, DoubleAssign and IsOnCurve.
+// https://github.com/Consensys/gnark-crypto/blob/703a260c2f991d01e245adf53d20f76af4210c5f/ecc/bn254/g2.go
+// Curve/identity parameters: ecc/bn254/bn254.go at the same revision.
+// Affine [x.real,x.u,y.real,y.u]; Jacobian [X.real,X.u,Y.real,Y.u,Z.real,Z.u].
+// x=X/Z^2, y=Y/Z^3, u^2=-1. Affine infinity is four zeros; canonical
+// Jacobian infinity is [(1,0),(1,0),(0,0)], as in upstream FromAffine/init.
+// Internal infinity outputs are canonicalized without changing the group point.
+// All external coordinates are checked before any modular operation.
+// These are target artifacts, not an arithmetic/VM or full-verifier acceptance.
+
+Abstract Contract Bn254G2(fpModulus: U256) extends Bn254Fp2(fpModulus) {
+    const G2_NOT_ON_CURVE = 1200
+    // b=3/(9+u)=(27/82,-3/82). Canonical integer derivation agrees with
+    // bn254.go init and e2_bn254.go MulBybTwistCurveCoeff; no Montgomery copy.
+    const G2_B_REAL = 19485874751759354771024239261021720505790618469301721065564631296452457478373
+    const G2_B_IMAGINARY = 266929791119991161246907387137283842545076965332900288569378510910307636690
+
+    fn g2Validate(a: [U256; 4]) -> () {
+        fpValidate(a[0])
+        fpValidate(a[1])
+        fpValidate(a[2])
+        fpValidate(a[3])
+    }
+
+    fn g2IsInfinity(a: [U256; 4]) -> Bool {
+        return a[0] == 0 && a[1] == 0 && a[2] == 0 && a[3] == 0
+    }
+
+    fn g2OnCurve(a: [U256; 4]) -> Bool {
+        g2Validate(a)
+        if (g2IsInfinity(a)) {
+            return true
+        }
+        let left = fp2Square([a[2], a[3]])
+        let squareX = fp2Square([a[0], a[1]])
+        let cubeX = fp2Mul(squareX, [a[0], a[1]])
+        let right = fp2Add([cubeX[0], cubeX[1]], [G2_B_REAL, G2_B_IMAGINARY])
+        return left[0] == right[0] && left[1] == right[1]
+    }
+
+    fn g2JacValidate(a: [U256; 6]) -> () {
+        for (let mut i = 0; i < 6; i = i + 1) {
+            fpValidate(a[i])
+        }
+        // Internal Jacobian infinity has one frozen representation. Reject
+        // malformed zero-Z values before an infinity shortcut or inversion.
+        if (a[4] == 0 && a[5] == 0) {
+            assert!(a[0] == 1 && a[1] == 0 && a[2] == 1 && a[3] == 0, G2_NOT_ON_CURVE)
+        }
+    }
+
+    fn g2JacIsInfinity(a: [U256; 6]) -> Bool {
+        return a[4] == 0 && a[5] == 0
+    }
+
+    fn g2JacOnCurve(a: [U256; 6]) -> Bool {
+        g2JacValidate(a)
+        let left = fp2Square([a[2], a[3]])
+        let squareX = fp2Square([a[0], a[1]])
+        let cubeX = fp2Mul(squareX, [a[0], a[1]])
+        let squareZ = fp2Square([a[4], a[5]])
+        let fourthZ = fp2Square([squareZ[0], squareZ[1]])
+        let sixthZ = fp2Mul(fourthZ, squareZ)
+        let curveTerm = fp2Mul(sixthZ, [G2_B_REAL, G2_B_IMAGINARY])
+        let right = fp2Add([cubeX[0], cubeX[1]], [curveTerm[0], curveTerm[1]])
+        return left[0] == right[0] && left[1] == right[1]
+    }
+
+    fn g2FromAffine(a: [U256; 4]) -> [U256; 6] {
+        assert!(g2OnCurve(a), G2_NOT_ON_CURVE)
+        if (g2IsInfinity(a)) {
+            return [1, 0, 1, 0, 0, 0]
+        }
+        return [a[0], a[1], a[2], a[3], 1, 0]
+    }
+
+    fn g2ToAffine(a: [U256; 6]) -> [U256; 4] {
+        g2JacValidate(a)
+        if (g2JacIsInfinity(a)) {
+            return [0, 0, 0, 0]
+        }
+        let inverseZ = fp2Inv([a[4], a[5]])
+        let inverseZSquare = fp2Square([inverseZ[0], inverseZ[1]])
+        let x = fp2Mul([a[0], a[1]], inverseZSquare)
+        let y = fp2Mul(fp2Mul([a[2], a[3]], inverseZSquare), inverseZ)
+        return [x[0], x[1], y[0], y[1]]
+    }
+
+    // AddAssign: the upstream U1/S1 are derived from q=b, U2/S2 from p=a.
+    // Equal/opposite branches use cross products, so distinct Z scales work.
+    // PRECONDITION: non-infinity inputs are internal on-curve Jacobian points.
+    fn g2JacAdd(a: [U256; 6], b: [U256; 6]) -> [U256; 6] {
+        g2JacValidate(a)
+        g2JacValidate(b)
+        if (g2JacIsInfinity(a)) {
+            return b
+        }
+        if (g2JacIsInfinity(b)) {
+            return a
+        }
+        let z1z1 = fp2Square([b[4], b[5]])
+        let z2z2 = fp2Square([a[4], a[5]])
+        let u1 = fp2Mul([b[0], b[1]], z2z2)
+        let u2 = fp2Mul([a[0], a[1]], z1z1)
+        let s1 = fp2Mul(fp2Mul([b[2], b[3]], [a[4], a[5]]), z2z2)
+        let s2 = fp2Mul(fp2Mul([a[2], a[3]], [b[4], b[5]]), z1z1)
+        if (u1[0] == u2[0] && u1[1] == u2[1]) {
+            if (s1[0] == s2[0] && s1[1] == s2[1]) {
+                return g2JacDouble(a)
+            }
+            // The source formula has Z=0 here. Normalize its identity output.
+            return [1, 0, 1, 0, 0, 0]
+        }
+        let h = fp2Sub(u2, u1)
+        let i = fp2Square(fp2Add([h[0], h[1]], [h[0], h[1]]))
+        let j = fp2Mul(h, i)
+        let differenceY = fp2Sub(s2, s1)
+        let r = fp2Add([differenceY[0], differenceY[1]], [differenceY[0], differenceY[1]])
+        let v = fp2Mul(u1, i)
+        let x = fp2Sub(fp2Sub(fp2Sub(fp2Square([r[0], r[1]]), j), v), v)
+        let productY = fp2Mul(s1, j)
+        let twiceProductY = fp2Add([productY[0], productY[1]], [productY[0], productY[1]])
+        let y = fp2Sub(fp2Mul(fp2Sub(v, x), r), twiceProductY)
+        let sumZSquare = fp2Square(fp2Add([a[4], a[5]], [b[4], b[5]]))
+        let z = fp2Mul(fp2Sub(fp2Sub(sumZSquare, z1z1), z2z2), h)
+        return [x[0], x[1], y[0], y[1], z[0], z[1]]
+    }
+
+    // DoubleAssign: dbl-2007-bl for A=0, with alias-safe old coordinates.
+    // PRECONDITION: a non-infinity input is an internal on-curve point.
+    fn g2JacDouble(a: [U256; 6]) -> [U256; 6] {
+        g2JacValidate(a)
+        if (g2JacIsInfinity(a) || (a[2] == 0 && a[3] == 0)) {
+            return [1, 0, 1, 0, 0, 0]
+        }
+        let xx = fp2Square([a[0], a[1]])
+        let yy = fp2Square([a[2], a[3]])
+        let yyyy = fp2Square([yy[0], yy[1]])
+        let zz = fp2Square([a[4], a[5]])
+        let sumXSquare = fp2Square(fp2Add([a[0], a[1]], [yy[0], yy[1]]))
+        let differenceX = fp2Sub(fp2Sub(sumXSquare, xx), yyyy)
+        let s = fp2Add([differenceX[0], differenceX[1]], [differenceX[0], differenceX[1]])
+        let m = fp2Add(fp2Add([xx[0], xx[1]], [xx[0], xx[1]]), [xx[0], xx[1]])
+        let sumZSquare = fp2Square(fp2Add([a[4], a[5]], [a[2], a[3]]))
+        let z = fp2Sub(fp2Sub(sumZSquare, yy), zz)
+        let twiceS = fp2Add([s[0], s[1]], [s[0], s[1]])
+        let x = fp2Sub(fp2Square([m[0], m[1]]), twiceS)
+        let twiceYYYY = fp2Add([yyyy[0], yyyy[1]], [yyyy[0], yyyy[1]])
+        let fourYYYY = fp2Add([twiceYYYY[0], twiceYYYY[1]], [twiceYYYY[0], twiceYYYY[1]])
+        let eightYYYY = fp2Add([fourYYYY[0], fourYYYY[1]], [fourYYYY[0], fourYYYY[1]])
+        let y = fp2Sub(fp2Mul(fp2Sub(s, x), m), eightYYYY)
+        return [x[0], x[1], y[0], y[1], z[0], z[1]]
+    }
+
+    fn g2JacNeg(a: [U256; 6]) -> [U256; 6] {
+        g2JacValidate(a)
+        if (g2JacIsInfinity(a)) {
+            return [1, 0, 1, 0, 0, 0]
+        }
+        let negativeY = fp2Neg([a[2], a[3]])
+        return [a[0], a[1], negativeY[0], negativeY[1], a[4], a[5]]
+    }
+}

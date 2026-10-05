@@ -1,0 +1,24 @@
+// SPDX-License-Identifier: Apache-2.0
+// Development-only C12 complete four-pair probe: one immutable modulus field.
+// Exactly 25 scalar U256 inputs preserve the shared bounded RPC ABI.
+// Each consecutive six cells are G1(x,y), G2(x.real,x.imag,y.real,y.imag).
+// Affine infinity is all zero. Every supplied point is checked on target.
+// Return all twelve normalized Fp12 cells, not a host membership boolean.
+// Normalization is the selected Gnark final exponent s*(p^12-1)/r from C10.
+// All four pairs go through the same complete target pairing implementation.
+
+Contract Bn254MillerProbe(fpModulus: U256) extends Bn254Miller(fpModulus) {
+    pub fn probe(
+        op: U256,
+        a0: U256, a1: U256, a2: U256, a3: U256, a4: U256, a5: U256,
+        a6: U256, a7: U256, a8: U256, a9: U256, a10: U256, a11: U256,
+        b0: U256, b1: U256, b2: U256, b3: U256, b4: U256, b5: U256,
+        b6: U256, b7: U256, b8: U256, b9: U256, b10: U256, b11: U256
+    ) -> [U256; 12] {
+        fpCheckParameters()
+        assert!(op == 0, 1399)
+        return pairing4([
+            a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11,
+            b0, b1, b2, b3, b4, b5, b6, b7, b8, b9, b10, b11])
+    }
+}

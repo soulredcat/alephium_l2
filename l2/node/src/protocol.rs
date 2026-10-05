@@ -2,6 +2,10 @@ use alloy_primitives::{Address, B256, U256};
 use serde::{Deserialize, Serialize};
 
 pub mod checkpoint;
+#[allow(dead_code)]
+pub(crate) mod encoding;
+pub(crate) mod head_codec;
+pub(crate) mod receipt_codec;
 
 pub const CHAIN_ID: u64 = 424243;
 pub const SCHEMA: u32 = 1;

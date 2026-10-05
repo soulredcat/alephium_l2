@@ -1,0 +1,68 @@
+// SPDX-License-Identifier: Apache-2.0
+// Development-only C11 curve probe: one immutable modulus, no asset authority.
+// Exactly 25 scalar U256 inputs avoid nested-array RPC serialization.
+// G1 affine is [x,y]; G2 affine is [x.real,x.imag,y.real,y.imag].
+// Affine infinity is all zero. Every return is padded to twelve cells.
+// Ops 0/1/2: G1 add/double/multiply; scalar is b2 for op 2.
+// Op 3: six IC points in a0..a11, five signals in b0..b4.
+// Ops 4/5/6: checked G2 add/double/fixed positive-seed multiplication.
+// Op 7: the target checks the G2 subgroup before returning one.
+// Op 8: G1 negation validates the original point before changing y.
+// Host membership booleans are never supplied as target acceptance inputs.
+
+Contract Bn254CurveProbe(fpModulus: U256) extends Bn254G1(fpModulus), Bn254G2Subgroup(fpModulus) {
+    pub fn probe(
+        op: U256,
+        a0: U256, a1: U256, a2: U256, a3: U256, a4: U256, a5: U256,
+        a6: U256, a7: U256, a8: U256, a9: U256, a10: U256, a11: U256,
+        b0: U256, b1: U256, b2: U256, b3: U256, b4: U256, b5: U256,
+        b6: U256, b7: U256, b8: U256, b9: U256, b10: U256, b11: U256
+    ) -> [U256; 12] {
+        fpCheckParameters()
+        assert!(op < 9, 1299)
+        // The shared scalar ABI reserves these cells for future distinct flows.
+        assert!(b5 == 0 && b6 == 0 && b7 == 0 && b8 == 0 && b9 == 0 && b10 == 0 && b11 == 0, 1298)
+        if (op == 0) {
+            let result = g1ToAffine(g1JacAdd(g1FromAffine([a0, a1]), g1FromAffine([b0, b1])))
+            return curveG1Output(result)
+        } else if (op == 1) {
+            let result = g1ToAffine(g1JacDouble(g1FromAffine([a0, a1])))
+            return curveG1Output(result)
+        } else if (op == 2) {
+            let result = g1ToAffine(g1Mul([a0, a1], b2))
+            return curveG1Output(result)
+        } else if (op == 3) {
+            let result = g1Msm(
+                [a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11],
+                [b0, b1, b2, b3, b4])
+            return curveG1Output(result)
+        } else if (op == 4) {
+            g2CheckSubgroup([a0, a1, a2, a3])
+            g2CheckSubgroup([b0, b1, b2, b3])
+            let result = g2ToAffine(g2JacAdd(
+                g2FromAffine([a0, a1, a2, a3]), g2FromAffine([b0, b1, b2, b3])))
+            return curveG2Output(result)
+        } else if (op == 5) {
+            g2CheckSubgroup([a0, a1, a2, a3])
+            let result = g2ToAffine(g2JacDouble(g2FromAffine([a0, a1, a2, a3])))
+            return curveG2Output(result)
+        } else if (op == 6) {
+            g2CheckSubgroup([a0, a1, a2, a3])
+            let result = g2ToAffine(g2MulSeed(g2FromAffine([a0, a1, a2, a3])))
+            return curveG2Output(result)
+        } else if (op == 7) {
+            g2CheckSubgroup([a0, a1, a2, a3])
+            return [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        } else {
+            return curveG1Output(g1Neg([a0, a1]))
+        }
+    }
+
+    fn curveG1Output(a: [U256; 2]) -> [U256; 12] {
+        return [a[0], a[1], 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    }
+
+    fn curveG2Output(a: [U256; 4]) -> [U256; 12] {
+        return [a[0], a[1], a[2], a[3], 0, 0, 0, 0, 0, 0, 0, 0]
+    }
+}

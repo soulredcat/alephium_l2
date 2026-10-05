@@ -1,0 +1,78 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2020 Consensys Software Inc. (Gnark Crypto reference).
+// Licensed under the Apache License, Version 2.0; retained text in this directory.
+// Subgroup relation, psi and two-bit mulWindowed translated from Gnark Crypto
+// 703a260c2f991d01e245adf53d20f76af4210c5f, ecc/bn254/g2.go.
+// https://github.com/Consensys/gnark-crypto/blob/703a260c2f991d01e245adf53d20f76af4210c5f/ecc/bn254/g2.go
+// Canonical endo.u/v and positive xGen are from ecc/bn254/bn254.go init.
+// psi factors are exactly the existing tower c[1,2] and c[1,3], not inverse
+// factors or Montgomery limbs. See l2/verifier-tool/fixtures/tower-constants.json.
+// Reference theorem: https://eprint.iacr.org/2022/348.pdf, sections 3 and 5.1.
+// This validates the supplied point; it never clears an adversarial cofactor.
+
+Abstract Contract Bn254G2Subgroup(fpModulus: U256) extends Bn254G2(fpModulus) {
+    const G2_NOT_IN_SUBGROUP = 1201
+    const G2_SEED = 4965661367192848881
+    const G2_PSI_X_REAL = 21575463638280843010398324269430826099269044274347216827212613867836435027261
+    const G2_PSI_X_IMAGINARY = 10307601595873709700152284273816112264069230130616436755625194854815875713954
+    const G2_PSI_Y_REAL = 2821565182194536844548159561693502659359617185244120367078079554186484126554
+    const G2_PSI_Y_IMAGINARY = 3505843767911556378687030309984248845540243509899259641013678093033130930403
+
+    // psi(X,Y,Z)=(conj(X)*endo.u, conj(Y)*endo.v, conj(Z)).
+    // Infinity canonicalization preserves the source endomorphism's group point.
+    fn g2Psi(a: [U256; 6]) -> [U256; 6] {
+        g2JacValidate(a)
+        if (g2JacIsInfinity(a)) {
+            return [1, 0, 1, 0, 0, 0]
+        }
+        let x = fp2Mul([a[0], fpNeg(a[1])], [G2_PSI_X_REAL, G2_PSI_X_IMAGINARY])
+        let y = fp2Mul([a[2], fpNeg(a[3])], [G2_PSI_Y_REAL, G2_PSI_Y_IMAGINARY])
+        return [x[0], x[1], y[0], y[1], a[4], fpNeg(a[5])]
+    }
+
+    // Fixed positive 63-bit x0: source two-bit windowed double-and-add.
+    // Use direct group arithmetic rather than a subgroup-dependent GLV split.
+    // The initial public window is 1, so the two infinity doubles/add reduce
+    // to a. The remaining 31 windows consume exactly the remaining 62 bits.
+    fn g2MulSeed(a: [U256; 6]) -> [U256; 6] {
+        g2JacValidate(a)
+        if (g2JacIsInfinity(a)) {
+            return [1, 0, 1, 0, 0, 0]
+        }
+        let twiceA = g2JacDouble(a)
+        let threeA = g2JacAdd(a, twiceA)
+        let mut result = a
+        for (let mut remaining = 31; remaining > 0; remaining = remaining - 1) {
+            result = g2JacDouble(g2JacDouble(result))
+            let digit = (G2_SEED >> (2 * (remaining - 1))) & 3
+            if (digit == 1) {
+                result = g2JacAdd(result, a)
+            } else if (digit == 2) {
+                result = g2JacAdd(result, twiceA)
+            } else if (digit == 3) {
+                result = g2JacAdd(result, threeA)
+            } else {
+                // The zero digit retains only the preceding two doublings.
+            }
+        }
+        return result
+    }
+
+    // Exact source predicate:
+    // [x0+1]Q + psi([x0]Q) + psi^2([x0]Q) = psi^3([2*x0]Q).
+    // The source tests the difference is on-curve and has Z=0. Preserve both
+    // checks; curve validation and every field guard precede the infinity case.
+    fn g2CheckSubgroup(a: [U256; 4]) -> () {
+        let q = g2FromAffine(a)
+        if (!g2JacIsInfinity(q)) {
+            let seedQ = g2MulSeed(q)
+            let psiSeedQ = g2Psi(seedQ)
+            let seedPlusOneQ = g2JacAdd(seedQ, q)
+            let psiSquaredSeedQ = g2Psi(psiSeedQ)
+            let lhs = g2JacAdd(g2JacAdd(psiSquaredSeedQ, psiSeedQ), seedPlusOneQ)
+            let rhs = g2JacDouble(g2Psi(psiSquaredSeedQ))
+            let difference = g2JacAdd(rhs, g2JacNeg(lhs))
+            assert!(g2JacOnCurve(difference) && g2JacIsInfinity(difference), G2_NOT_IN_SUBGROUP)
+        }
+    }
+}

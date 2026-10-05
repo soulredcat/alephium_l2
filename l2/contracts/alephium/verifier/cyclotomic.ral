@@ -1,0 +1,70 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2020 Consensys Software Inc. (Gnark Crypto reference).
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//     https://www.apache.org/licenses/LICENSE-2.0
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// Fp12 cyclotomic algebra translated from Gnark Crypto revision
+// 703a260c2f991d01e245adf53d20f76af4210c5f, ecc/bn254/internal/fptower/e12.go:
+// CyclotomicSquare.
+// https://github.com/Consensys/gnark-crypto/blob/703a260c2f991d01e245adf53d20f76af4210c5f/ecc/bn254/internal/fptower/e12.go
+// Flat canonical layout is [C0.B0.A0, C0.B0.A1, C0.B1.A0, C0.B1.A1,
+// C0.B2.A0, C0.B2.A1, C1.B0.A0, C1.B0.A1, C1.B1.A0, C1.B1.A1,
+// C1.B2.A0, C1.B2.A1]. It represents C0 + C1*w, where w^2 = v.
+// Value arguments and fresh temporaries preserve upstream alias-safe formulas.
+// These internal methods share the checked immutable modulus; no external field authority.
+
+Abstract Contract Bn254Cyclotomic(fpModulus: U256) extends Bn254Fp12(fpModulus) {
+    // Granger-Scott square, upstream CyclotomicSquare (uncompressed).
+    // PRECONDITION: a is nonzero and a^(p^4-p^2+1)=1. The pairing easy part
+    // establishes this before its hard chain; canonical checks do not prove it.
+    // Keep this method internal and use fp12Square for arbitrary Fp12 inputs.
+    // All nonresidue factors below are 9+u, not the Fp2 basis element u.
+    fn fp12CyclotomicSquare(a: [U256; 12]) -> [U256; 12] {
+        fp12Validate(a)
+        let pair04 = fp12CyclotomicPair([a[8], a[9]], [a[0], a[1]])
+        let pair23 = fp12CyclotomicPair([a[4], a[5]], [a[6], a[7]])
+        let pair15 = fp12CyclotomicPair([a[10], a[11]], [a[2], a[3]])
+        let weightedCross15 = fp2MulNonResidue([pair15[2], pair15[3]])
+        let y0 = fp12CyclotomicDifference([pair04[0], pair04[1]], [a[0], a[1]])
+        let y1 = fp12CyclotomicDifference([pair23[0], pair23[1]], [a[2], a[3]])
+        let y2 = fp12CyclotomicDifference([pair15[0], pair15[1]], [a[4], a[5]])
+        let y3 = fp12CyclotomicSum([weightedCross15[0], weightedCross15[1]], [a[6], a[7]])
+        let y4 = fp12CyclotomicSum([pair04[2], pair04[3]], [a[8], a[9]])
+        let y5 = fp12CyclotomicSum([pair23[2], pair23[3]], [a[10], a[11]])
+        return [y0[0], y0[1], y1[0], y1[1], y2[0], y2[1],
+            y3[0], y3[1], y4[0], y4[1], y5[0], y5[1]]
+    }
+
+    // One Granger-Scott pair: weighted = (9+u)*x^2+y^2, cross = 2*x*y.
+    // Flat return layout is [weighted.real, weighted.imag, cross.real, cross.imag].
+    fn fp12CyclotomicPair(x: [U256; 2], y: [U256; 2]) -> [U256; 4] {
+        let squareX = fp2Square([x[0], x[1]])
+        let squareY = fp2Square([y[0], y[1]])
+        let cross = fp2Sub(fp2Sub(fp2Square(fp2Add([x[0], x[1]], [y[0], y[1]])),
+            [squareX[0], squareX[1]]), [squareY[0], squareY[1]])
+        let weighted = fp2Add(fp2MulNonResidue([squareX[0], squareX[1]]),
+            [squareY[0], squareY[1]])
+        return [weighted[0], weighted[1], cross[0], cross[1]]
+    }
+
+    // Preserve 2*(weighted-original)+weighted = 3*weighted-2*original.
+    fn fp12CyclotomicDifference(weighted: [U256; 2], original: [U256; 2]) -> [U256; 2] {
+        let difference = fp2Sub([weighted[0], weighted[1]], [original[0], original[1]])
+        return fp2Add(fp2Add([difference[0], difference[1]], [difference[0], difference[1]]),
+            [weighted[0], weighted[1]])
+    }
+
+    // Preserve 2*(cross+original)+cross = 3*cross+2*original.
+    fn fp12CyclotomicSum(cross: [U256; 2], original: [U256; 2]) -> [U256; 2] {
+        let sum = fp2Add([cross[0], cross[1]], [original[0], original[1]])
+        return fp2Add(fp2Add([sum[0], sum[1]], [sum[0], sum[1]]), [cross[0], cross[1]])
+    }
+}
