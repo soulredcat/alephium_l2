@@ -46,14 +46,24 @@ fn export_retained_checkpoint_as_canonical_binary() -> Result<(), String> {
         settlement_contract_id: B256::from([0x22; 32]),
     };
     let genesis_report = operator::prepare_transition_checkpoint(
-        &backup, &genesis, &output.join("genesis-export"), 1, domain.clone(),
+        &backup,
+        &genesis,
+        &output.join("genesis-export"),
+        1,
+        domain.clone(),
     )?;
     let genesis_bytes = fs::read(&genesis_report.bundle_path).map_err(io_error)?;
     let genesis_bundle = operator::decode_checkpoint_transition(&genesis_bytes)?;
     assert_eq!(genesis_bundle.checkpoint.head.height, 0);
     assert_eq!(genesis_bundle.blocks.len(), 4);
     assert!(genesis_bundle.checkpoint.codes.is_empty());
-    assert!(genesis_bundle.checkpoint.accounts.iter().all(|account| account.nonce == 0 && account.slots.is_empty()));
+    assert!(
+        genesis_bundle
+            .checkpoint
+            .accounts
+            .iter()
+            .all(|account| account.nonce == 0 && account.slots.is_empty())
+    );
     let report = operator::prepare_transition_checkpoint(
         &backup,
         &genesis,
@@ -136,8 +146,13 @@ fn export_retained_checkpoint_as_canonical_binary() -> Result<(), String> {
     trailing.push(0);
     assert!(operator::decode_checkpoint_transition(&trailing).is_err());
     let mut oversized_checkpoint = operator::encode_checkpoint_transition(&bundle)?;
-    let checkpoint_length_offset = b"ALEPHIUM-L2/TRANSITION/WIRE/V3\0".len() + 4
-        + 4 + bundle.rpc_profile.len() + 4 + bundle.execution_engine.len() + 65;
+    let checkpoint_length_offset = b"ALEPHIUM-L2/TRANSITION/WIRE/V3\0".len()
+        + 4
+        + 4
+        + bundle.rpc_profile.len()
+        + 4
+        + bundle.execution_engine.len()
+        + 65;
     oversized_checkpoint[checkpoint_length_offset..checkpoint_length_offset + 4]
         .copy_from_slice(&(8 * 1024 * 1024 + 1_u32).to_be_bytes());
     assert!(operator::decode_checkpoint_transition(&oversized_checkpoint).is_err());
@@ -147,7 +162,11 @@ fn export_retained_checkpoint_as_canonical_binary() -> Result<(), String> {
         serde_json::to_vec_pretty(&report).map_err(|_| "Cannot encode safe checkpoint report")?,
     )
     .map_err(io_error)?;
-    fs::write(output.join("genesis-report.json"), serde_json::to_vec_pretty(&genesis_report)
-        .map_err(|_| "Cannot encode safe genesis checkpoint report")?).map_err(io_error)?;
+    fs::write(
+        output.join("genesis-report.json"),
+        serde_json::to_vec_pretty(&genesis_report)
+            .map_err(|_| "Cannot encode safe genesis checkpoint report")?,
+    )
+    .map_err(io_error)?;
     Ok(())
 }
