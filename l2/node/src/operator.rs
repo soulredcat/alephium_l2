@@ -20,6 +20,7 @@ pub use transition_types::{
     TransitionBundle, TransitionContext, TransitionInput, TransitionReport,
 };
 pub use transition_wire::{
-    decode_checkpoint_transition, encode_checkpoint_transition, is_checkpoint_wire,
+    MAX_CONTINUATION_CHECKPOINT_BYTES, decode_checkpoint_transition, encode_checkpoint_transition,
+    is_checkpoint_wire,
 };
 pub use types::{BackupManifest, BackupReport, FileEntry, ReplayReport};

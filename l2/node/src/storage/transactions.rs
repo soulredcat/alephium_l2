@@ -99,7 +99,42 @@ impl Store {
         Ok(status)
     }
 
-    pub fn commit(&mut self, mut commit: BlockCommit) -> Result<super::ReadView, String> {
+    pub fn commit(&mut self, commit: BlockCommit) -> Result<super::ReadView, String> {
+        self.commit_checked(commit, false)?
+            .map_err(|_| "unenforced checkpoint capacity refused a commit".into())
+    }
+
+    /// Track the exact encoded checkpoint size from now on and refuse, in
+    /// `commit_bounded`, any block whose resulting checkpoint exceeds `limit`.
+    pub fn enable_capacity(&mut self, limit: usize) -> Result<(), String> {
+        self.capacity = Some(super::capacity::Capacity::scan(&self.view()?, limit)?);
+        Ok(())
+    }
+
+    /// Encoded checkpoint size of the committed head and its enforced bound.
+    pub fn checkpoint_capacity(&self) -> Option<(usize, usize)> {
+        self.capacity
+            .as_ref()
+            .map(|capacity| (capacity.bytes(), capacity.limit()))
+    }
+
+    /// Commit unless the resulting checkpoint would exceed the enabled bound,
+    /// in which case nothing is written.
+    pub fn commit_bounded(
+        &mut self,
+        commit: BlockCommit,
+    ) -> Result<Result<super::ReadView, super::CapacityExceeded>, String> {
+        if self.capacity.is_none() {
+            return Err("checkpoint capacity tracking is not enabled".into());
+        }
+        self.commit_checked(commit, true)
+    }
+
+    fn commit_checked(
+        &mut self,
+        mut commit: BlockCommit,
+        enforce: bool,
+    ) -> Result<Result<super::ReadView, super::CapacityExceeded>, String> {
         self.check()?;
         if self.latest_head()? != commit.parent {
             return Err("commit parent is stale".into());
@@ -163,6 +198,16 @@ impl Store {
             changes.push(StoredChange { change, epoch });
         }
         let (head, record) = block::encode(&commit, &changes)?;
+        let capacity = match &self.capacity {
+            Some(capacity) => {
+                let next = capacity.after(&view, &changes, head.height)?;
+                if enforce && next.bytes() > capacity.limit() {
+                    return Ok(Err(super::CapacityExceeded));
+                }
+                Some(next)
+            }
+            None => None,
+        };
         let mut batch = self.batch()?;
         for stored in &changes {
             let change = &stored.change;
@@ -246,6 +291,9 @@ impl Store {
         );
         batch.insert(&self.items, vec![0x02], records::encode_head(&head));
         self.finish(batch)?;
-        self.view()
+        if let (Some(capacity), Some(next)) = (self.capacity.as_mut(), capacity) {
+            capacity.apply(next);
+        }
+        Ok(Ok(self.view()?))
     }
 }

@@ -1,5 +1,6 @@
 mod block;
 mod blocks;
+mod capacity;
 mod checkpoint;
 mod discard;
 use crate::protocol::encoding;
@@ -9,6 +10,7 @@ mod recovery;
 mod transactions;
 mod view;
 
+pub use capacity::CapacityExceeded;
 pub use view::ReadView;
 
 use crate::protocol::{Account, Genesis, Head};
@@ -30,6 +32,8 @@ pub struct Store {
     items: Keyspace,
     chain_id: u64,
     block_index_complete: bool,
+    /// Checkpoint size tracking, enabled by the block producer.
+    capacity: Option<capacity::Capacity>,
     terminal: Arc<AtomicBool>,
     #[cfg(test)]
     fail_next: bool,
@@ -74,6 +78,7 @@ impl Store {
             items,
             chain_id: genesis.chain_id,
             block_index_complete: false,
+            capacity: None,
             terminal: Arc::new(AtomicBool::new(false)),
             #[cfg(test)]
             fail_next: false,
@@ -195,3 +200,7 @@ fn engine_error(error: fjall::Error) -> String {
 #[cfg(test)]
 #[path = "storage/failure_test.rs"]
 mod failure_test;
+
+#[cfg(test)]
+#[path = "storage/capacity_tests.rs"]
+mod capacity_tests;

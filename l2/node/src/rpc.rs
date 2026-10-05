@@ -63,7 +63,9 @@ async fn health(State(state): State<RpcState>) -> Json<Value> {
         "genesis_id":head.as_ref().map(|h| h.genesis_id),
         "pending":state.node.pending_count(),"settlement":"unimplemented","error":failure,
         "rpc_profile":"development/c5-v1","transaction_types":["0x0","0x2"],"base_fee":"0x0",
-        "min_gas_price":format!("0x{:x}", state.node.min_gas_price())}),
+        "min_gas_price":format!("0x{:x}", state.node.min_gas_price()),
+        "checkpoint_bytes":state.node.checkpoint_capacity().0,
+        "checkpoint_limit":state.node.checkpoint_capacity().1}),
     )
 }
 

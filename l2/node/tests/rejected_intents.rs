@@ -66,6 +66,7 @@ fn execution_rejections_stay_out_of_blocks_and_survive_restart_and_replay() {
         data_dir: data.clone(),
         genesis: genesis.clone(),
         min_gas_price: 0,
+        max_checkpoint_bytes: operator::MAX_CONTINUATION_CHECKPOINT_BYTES,
     };
     let runtime = tokio::runtime::Runtime::new().unwrap();
     let (node, worker) = service::start(&config).unwrap();
