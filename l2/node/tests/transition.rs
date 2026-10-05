@@ -33,7 +33,26 @@ fn export_actual_transfer_deploy_write_revert_with_full_prefix() -> Result<(), S
     let genesis = development::genesis();
     let mut store = Store::open(&root.join("source"), &genesis)?;
     let receipts = exercise_history(&mut store, &root)?;
+    // Exercise export/core agreement from a history containing a local discard,
+    // without changing any of the four committed proof inputs or their state.
+    let recipient = Address::repeat_byte(0x66);
+    persist_intent(
+        &root,
+        "05-discarded",
+        serde_json::json!({
+            "type": 0, "nonce": 4, "to": recipient, "value": "1", "gas": 21000,
+            "gas_price": 1, "data_keccak": keccak256([]),
+        }),
+    )?;
+    let raw = development::sign(4, Some(recipient), U256::from(1), vec![], 21_000)?;
+    let discarded = admit(&mut store, &raw, 5)?;
+    let status = store.discard(discarded, "local discard fixture")?;
+    assert_eq!(status.status, "rejected");
+    assert_eq!(status.block_height, None);
     let view = store.view()?;
+    assert_eq!(view.pending_counter()?, 5);
+    assert!(view.receipt(discarded)?.is_none());
+    assert!(store.pending()?.is_empty());
     let head = view.head.clone();
     let digest = view.state_digest()?;
     let contract = receipts[1].contract.ok_or("Missing contract deployment")?;
