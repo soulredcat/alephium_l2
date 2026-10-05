@@ -59,7 +59,8 @@ async fn health(State(state): State<RpcState>) -> Json<Value> {
         "local_commit_id":head.as_ref().map(|h| h.commit_id),
         "genesis_id":head.as_ref().map(|h| h.genesis_id),
         "pending":state.node.pending_count(),"settlement":"unimplemented","error":failure,
-        "rpc_profile":"development/c5-v1","transaction_types":["0x0","0x2"],"base_fee":"0x0"}),
+        "rpc_profile":"development/c5-v1","transaction_types":["0x0","0x2"],"base_fee":"0x0",
+        "min_gas_price":format!("0x{:x}", state.node.min_gas_price())}),
     )
 }
 
@@ -202,6 +203,11 @@ async fn dispatch(state: RpcState, input: Value) -> Result<Value, RpcError> {
         )?;
         let status = state.node.submit(raw).await?;
         return Ok(json!(status.hash));
+    }
+    if matches!(method, "eth_gasPrice" | "eth_maxPriorityFeePerGas") {
+        parameters(&input, 0, 0)?;
+        // With a zero base fee the priority fee is the whole price; never suggest zero.
+        return Ok(json!(format!("0x{:x}", state.node.min_gas_price().max(1))));
     }
     let pool = if matches!(method, "eth_call" | "eth_estimateGas") {
         state.simulations

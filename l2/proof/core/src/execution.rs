@@ -1,15 +1,15 @@
 use crate::{
     changes::Changes,
-    protocol::{AccountChange, BlockContext, Receipt, MAX_TRANSACTION_BYTES},
+    protocol::{AccountChange, BlockContext, MAX_TRANSACTION_BYTES, Receipt},
     state::NativeState,
     transaction,
 };
 use alloy_primitives::{Address, B256, U256};
-use revm::{Context, ExecuteCommitEvm, ExecuteEvm, MainBuilder, MainContext};
 use revm::context::BlockEnv;
 use revm::database::{CacheDB, EmptyDB};
-use revm::primitives::{hardfork::SpecId, TxKind};
+use revm::primitives::{TxKind, hardfork::SpecId};
 use revm::state::AccountInfo;
+use revm::{Context, ExecuteCommitEvm, ExecuteEvm, MainBuilder, MainContext};
 
 pub(crate) struct ExecutedTransfer {
     pub changes: Vec<AccountChange>,
@@ -20,7 +20,9 @@ pub(crate) struct ExecutedTransfer {
 
 /// Do not log the argument, decoded bytes, signatures or underlying parse error.
 pub(crate) fn private_envelope(value: &str) -> Result<Vec<u8>, String> {
-    let value = value.strip_prefix("0x").ok_or("missing envelope hex prefix")?;
+    let value = value
+        .strip_prefix("0x")
+        .ok_or("missing envelope hex prefix")?;
     if value.is_empty() || value.len() > MAX_TRANSACTION_BYTES * 2 || value.len() % 2 != 0 {
         return Err("private envelope exceeds the supported byte bound".into());
     }
@@ -62,13 +64,16 @@ pub(crate) fn execute(
     let gas_price = tx.gas_price;
     let mut database = CacheDB::new(EmptyDB::default());
     for (address, account) in state.accounts() {
-        database.insert_account_info(*address, AccountInfo {
-            balance: account.balance,
-            nonce: account.nonce,
-            code_hash: account.code_hash,
-            code: None,
-            ..Default::default()
-        });
+        database.insert_account_info(
+            *address,
+            AccountInfo {
+                balance: account.balance,
+                nonce: account.nonce,
+                code_hash: account.code_hash,
+                code: None,
+                ..Default::default()
+            },
+        );
     }
     let block = BlockEnv {
         number: U256::from(context.number),
@@ -86,7 +91,8 @@ pub(crate) fn execute(
         })
         .with_block(block)
         .build_mainnet();
-    let mut outcome = evm.transact(tx)
+    let mut outcome = evm
+        .transact(tx)
         .map_err(|_| "pinned REVM rejected the native transition".to_owned())?;
     let mut changes = Changes::default();
     changes.absorb(&mut outcome.state);

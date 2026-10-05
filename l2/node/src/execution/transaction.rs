@@ -60,6 +60,7 @@ pub(super) fn decode(raw: &[u8], chain_id: u64) -> Result<(TxEnv, TransactionInf
         sender,
         nonce: envelope.nonce(),
         gas_limit: envelope.gas_limit(),
+        gas_price: envelope.effective_gas_price(Some(0)),
     };
     Ok((tx, info))
 }

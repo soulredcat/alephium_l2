@@ -17,13 +17,20 @@ pub(crate) struct NativeState {
 impl NativeState {
     pub(crate) fn genesis(genesis: &Genesis) -> Result<Self, String> {
         genesis.validate()?;
-        let accounts = genesis.accounts.iter()
+        let accounts = genesis
+            .accounts
+            .iter()
             .filter(|account| !account.balance.is_zero())
-            .map(|account| (account.address, Account {
-                balance: account.balance,
-                code_hash: keccak256([]),
-                ..Default::default()
-            }))
+            .map(|account| {
+                (
+                    account.address,
+                    Account {
+                        balance: account.balance,
+                        code_hash: keccak256([]),
+                        ..Default::default()
+                    },
+                )
+            })
             .collect();
         Ok(Self { accounts })
     }
@@ -37,13 +44,19 @@ impl NativeState {
     }
 
     pub(crate) fn balance(&self, address: Address) -> U256 {
-        self.accounts.get(&address).map_or(U256::ZERO, |account| account.balance)
+        self.accounts
+            .get(&address)
+            .map_or(U256::ZERO, |account| account.balance)
     }
 
     pub(crate) fn total_balance(&self) -> Result<U256, String> {
-        self.accounts.values().try_fold(U256::ZERO, |total, account| {
-            total.checked_add(account.balance).ok_or("native state total balance overflow".into())
-        })
+        self.accounts
+            .values()
+            .try_fold(U256::ZERO, |total, account| {
+                total
+                    .checked_add(account.balance)
+                    .ok_or("native state total balance overflow".into())
+            })
     }
 
     pub(crate) fn digest(&self) -> Result<B256, String> {
@@ -55,14 +68,18 @@ impl NativeState {
     pub(crate) fn apply(&mut self, changes: &[AccountChange]) -> Result<Vec<StoredChange>, String> {
         let mut stored = Vec::with_capacity(changes.len());
         for change in changes {
-            if change.code.is_some() || !change.slots.is_empty()
-                || (!change.deleted && change.code_hash != B256::ZERO
+            if change.code.is_some()
+                || !change.slots.is_empty()
+                || (!change.deleted
+                    && change.code_hash != B256::ZERO
                     && change.code_hash != keccak256([]))
             {
                 return Err("native proof excludes code and storage state".into());
             }
             let mut change = change.clone();
-            let mut epoch = self.accounts.get(&change.address)
+            let mut epoch = self
+                .accounts
+                .get(&change.address)
                 .map_or(0, |account| account.storage_epoch);
             if change.storage_reset || change.deleted {
                 epoch = epoch.checked_add(1).ok_or("storage epoch exhausted")?;
@@ -73,12 +90,15 @@ impl NativeState {
                 change.code_hash = B256::ZERO;
                 self.accounts.remove(&change.address);
             } else {
-                self.accounts.insert(change.address, Account {
-                    balance: change.balance,
-                    nonce: change.nonce,
-                    code_hash: change.code_hash,
-                    storage_epoch: epoch,
-                });
+                self.accounts.insert(
+                    change.address,
+                    Account {
+                        balance: change.balance,
+                        nonce: change.nonce,
+                        code_hash: change.code_hash,
+                        storage_epoch: epoch,
+                    },
+                );
             }
             stored.push(StoredChange { change, epoch });
         }
@@ -99,18 +119,29 @@ pub(crate) fn check_accounting(
     let fee = U256::from(receipt.gas_used)
         .checked_mul(U256::from(receipt.gas_price))
         .ok_or("native gas fee overflow")?;
-    let debit = value.checked_add(fee).ok_or("native sender debit overflow")?;
+    let debit = value
+        .checked_add(fee)
+        .ok_or("native sender debit overflow")?;
     let mut expected = before.clone();
-    let sender = expected.accounts.get_mut(&receipt.from)
+    let sender = expected
+        .accounts
+        .get_mut(&receipt.from)
         .ok_or("native sender is absent from funded genesis")?;
-    sender.balance = sender.balance.checked_sub(debit).ok_or("native sender underflow")?;
-    sender.nonce = sender.nonce.checked_add(1).ok_or("native sender nonce overflow")?;
+    sender.balance = sender
+        .balance
+        .checked_sub(debit)
+        .ok_or("native sender underflow")?;
+    sender.nonce = sender
+        .nonce
+        .checked_add(1)
+        .ok_or("native sender nonce overflow")?;
     credit(&mut expected, recipient, value)?;
     credit(&mut expected, beneficiary, fee)?;
     if expected.accounts.len() != after.accounts.len()
         || expected.accounts.iter().any(|(address, account)| {
             after.accounts.get(address).is_none_or(|actual| {
-                actual.balance != account.balance || actual.nonce != account.nonce
+                actual.balance != account.balance
+                    || actual.nonce != account.nonce
                     || actual.code_hash != account.code_hash
             })
         })
@@ -143,6 +174,9 @@ fn credit(state: &mut NativeState, address: Address, value: U256) -> Result<(), 
         code_hash: keccak256([]),
         ..Default::default()
     });
-    account.balance = account.balance.checked_add(value).ok_or("native credit overflow")?;
+    account.balance = account
+        .balance
+        .checked_add(value)
+        .ok_or("native credit overflow")?;
     Ok(())
 }
