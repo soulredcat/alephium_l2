@@ -185,8 +185,10 @@ pub fn execute(
 }
 
 pub(crate) fn canonical_child_id() -> Result<[u8; 32], String> {
-    hex::decode(CHILD_ID).map_err(|_| "Invalid pinned child ID")?
-        .try_into().map_err(|_| "Invalid child width".into())
+    hex::decode(CHILD_ID)
+        .map_err(|_| "Invalid pinned child ID")?
+        .try_into()
+        .map_err(|_| "Invalid child width".into())
 }
 
 pub(crate) struct Run<'a> {
@@ -199,10 +201,18 @@ pub(crate) struct Run<'a> {
 
 impl<'a> Run<'a> {
     pub(crate) fn new(
-        node: &'a ReadOnlyNode, factory: &'a Compiled,
-        root_state: Value, report: &'a mut Value,
+        node: &'a ReadOnlyNode,
+        factory: &'a Compiled,
+        root_state: Value,
+        report: &'a mut Value,
     ) -> Self {
-        Self { node, factory, root_state, report, records: Vec::new() }
+        Self {
+            node,
+            factory,
+            root_state,
+            report,
+            records: Vec::new(),
+        }
     }
 
     fn request(&self, method: usize, args: Vec<Value>, existing: &[Value]) -> Value {
