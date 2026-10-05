@@ -17,6 +17,8 @@ Continuation transport permits **8 MiB checkpoint input within a 16 MiB binary w
 
 The historical schema-2 image beginning `16b7cbb0` is not the current guest identity. Rebuild, package, review and repin schema 3; historical compilation does not validate changed shared code.
 
+The runtime's **execution/storage schema 2** removes phantom account tombstones and requires a fresh development chain. This version is distinct from transition witness schemas 1/2/3 and is bound into genesis, local commits, and proof profiles. Old execution-schema-1 stores/backups are refused before opening Fjall; keep their original binaries/data intact, including the P1-P3 baseline. Never relabel their ownership markers. Regenerate transition fixtures for the new profile and rebuild/repin the guest; previous genesis IDs, replay evidence and guest pins do not validate this profile.
+
 ## Source map and toolchains
 
 | Component | Existing implementation / pin |

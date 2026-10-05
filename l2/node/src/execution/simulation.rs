@@ -45,6 +45,7 @@ pub fn simulate(
             .map(|output| output.to_vec())
             .unwrap_or_default(),
         gas_used: outcome.result.tx_gas_used(),
+        gas_spent: outcome.result.gas().total_gas_spent(),
         halted: outcome.result.is_halt(),
     })
 }
