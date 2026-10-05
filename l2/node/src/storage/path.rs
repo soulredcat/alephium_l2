@@ -5,7 +5,9 @@ use std::{
 };
 
 const MARKER: &str = ".alephium-l2-development";
-const IDENTITY: &[u8] = b"alephium-l2-development-schema-1\n";
+// Must match protocol::SCHEMA; the profile integration test pins this pair.
+// Check before opening Fjall, whose recovery may write even on rejected startup.
+const IDENTITY: &[u8] = b"alephium-l2-development-schema-2\n";
 const FORBIDDEN_MARKERS: [&str; 4] = [
     "L2_DEVELOPMENT_IDENTITY",
     "L2_PRODUCTION_IDENTITY",
@@ -201,7 +203,10 @@ fn check_marker(path: &Path, metadata: &Metadata) -> Result<(), String> {
         return Err("Invalid development storage ownership marker".into());
     }
     if fs::read(path).map_err(error_text)? != IDENTITY {
-        return Err("Incompatible development storage ownership marker".into());
+        return Err(
+            "Incompatible development storage profile; keep its original binary and use fresh genesis/data for this runtime"
+                .into(),
+        );
     }
     Ok(())
 }

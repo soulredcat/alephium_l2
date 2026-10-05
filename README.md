@@ -35,6 +35,8 @@ cargo run -p alephium-l2-node --locked -- --chain-id 424245 --genesis .local/dev
 
 The node runs in the foreground. Press **Ctrl+C** to stop it gracefully. To restart, repeat only the final command with the same chain ID, genesis, and data directory. Genesis creation refuses to overwrite an existing file; opening a database with a different chain/genesis/profile is rejected. Never run two processes against one data directory.
 
+The current execution/storage profile is **schema 2**, which excludes phantom account tombstones. Its version is bound into the genesis ID, local commit encoding, and proof profile. It requires fresh development genesis/data; schema-1 databases and backups are rejected before the storage engine opens them. Preserve the original binary and data for existing schema-1 instances, including the accepted P1-P3 baseline. Do not rewrite ownership markers or reuse those databases with this runtime. Export new transition fixtures and rebuild/repin the guest for schema 2; this change does not migrate an existing chain or activate settlement.
+
 On Linux or macOS, create the directory with `mkdir -p .local/devnet`; the Cargo commands are the same. This is not a claim of production storage qualification on every platform.
 
 From a second terminal, inspect the node you just started:
