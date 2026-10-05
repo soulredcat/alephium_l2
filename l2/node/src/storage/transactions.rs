@@ -105,7 +105,8 @@ impl Store {
     }
 
     /// Track the exact encoded checkpoint size from now on and refuse, in
-    /// `commit_bounded`, any block whose resulting checkpoint exceeds `limit`.
+    /// `commit_bounded`, any block whose checkpoint plus remaining hash-window
+    /// growth exceeds `limit`.
     pub fn enable_capacity(&mut self, limit: usize) -> Result<(), String> {
         self.capacity = Some(super::capacity::Capacity::scan(&self.view()?, limit)?);
         Ok(())
@@ -118,8 +119,8 @@ impl Store {
             .map(|capacity| (capacity.bytes(), capacity.limit()))
     }
 
-    /// Commit unless the resulting checkpoint would exceed the enabled bound,
-    /// in which case nothing is written.
+    /// Commit unless the resulting checkpoint, including reserved hash-window
+    /// growth, would exceed the enabled bound; otherwise nothing is written.
     pub fn commit_bounded(
         &mut self,
         commit: BlockCommit,
@@ -201,7 +202,7 @@ impl Store {
         let capacity = match &self.capacity {
             Some(capacity) => {
                 let next = capacity.after(&view, &changes, head.height)?;
-                if enforce && next.bytes() > capacity.limit() {
+                if enforce && next.required_bytes() > capacity.limit() {
                     return Ok(Err(super::CapacityExceeded));
                 }
                 Some(next)

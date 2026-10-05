@@ -6,6 +6,8 @@
 //! a block before committing it if the resulting checkpoint would not fit.
 //! The size is tracked incrementally from the block's stored changes and
 //! must equal `ReadView::execution_checkpoint()?.encode()?.len()`.
+//! Capacity also reserves the remaining growth of the 256-entry hash window,
+//! so filling state before height 255 cannot prevent state-preserving blocks.
 use super::{ReadView, block::StoredChange, encoding::slot_key};
 use alloy_primitives::{Address, B256, keccak256};
 use fjall::Readable;
@@ -33,12 +35,13 @@ pub(super) struct Capacity {
 /// The tracked state after one prospective commit.
 pub(super) struct Next {
     bytes: usize,
+    required_bytes: usize,
     codes: BTreeMap<B256, (u64, usize)>,
 }
 
 impl Next {
-    pub(super) fn bytes(&self) -> usize {
-        self.bytes
+    pub(super) fn required_bytes(&self) -> usize {
+        self.required_bytes
     }
 }
 
@@ -50,8 +53,11 @@ impl Capacity {
     pub(super) fn scan(view: &ReadView, limit: usize) -> Result<Self, String> {
         let checkpoint = view.execution_checkpoint()?;
         let bytes = checkpoint.encode()?.len();
-        if bytes > limit {
-            return Err("Committed state already exceeds the checkpoint capacity bound".into());
+        if with_history_reserve(bytes, view.head.height)? > limit {
+            return Err(
+                "Committed state already exceeds the checkpoint capacity bound including its history reserve"
+                    .into(),
+            );
         }
         let lengths: BTreeMap<_, _> = checkpoint
             .codes
@@ -160,7 +166,11 @@ impl Capacity {
         let bytes = (self.bytes + added)
             .checked_sub(removed)
             .ok_or("checkpoint capacity accounting underflow")?;
-        Ok(Next { bytes, codes })
+        Ok(Next {
+            bytes,
+            required_bytes: with_history_reserve(bytes, height)?,
+            codes,
+        })
     }
 
     /// This block's working entry for `hash`, seeded from the committed counts.
@@ -182,6 +192,13 @@ impl Capacity {
             }),
         })
     }
+}
+
+fn with_history_reserve(bytes: usize, height: u64) -> Result<usize, String> {
+    let remaining = BLOCK_HASH_WINDOW.saturating_sub(height) as usize;
+    bytes
+        .checked_add(remaining * BLOCK_HASH_BYTES)
+        .ok_or_else(|| "checkpoint history reservation size overflow".into())
 }
 
 fn live_slots(view: &ReadView, address: Address, epoch: u64) -> Result<usize, String> {

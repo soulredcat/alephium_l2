@@ -1,6 +1,7 @@
 //! Block production. Every committed block must stay provable: it carries
 //! executed transactions only, and its resulting execution checkpoint must
 //! fit the continuation bound that a proven batch starting there needs.
+//! Space for the remaining historical hash window is reserved before growth.
 use super::Core;
 use crate::{
     execution,

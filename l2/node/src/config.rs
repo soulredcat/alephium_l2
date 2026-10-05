@@ -17,7 +17,8 @@ pub struct Config {
     /// Admission-only floor on the effective gas price; not a consensus rule.
     pub min_gas_price: u128,
     /// The producer refuses blocks whose resulting execution checkpoint would
-    /// encode larger than this; at most the continuation transport bound.
+    /// exceed this including reserved hash-window growth; at most the
+    /// continuation transport bound.
     pub max_checkpoint_bytes: usize,
 }
 

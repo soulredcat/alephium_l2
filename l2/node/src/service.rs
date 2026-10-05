@@ -192,6 +192,12 @@ impl Core {
 }
 
 pub fn start(config: &Config) -> Result<(NodeHandle, thread::JoinHandle<()>), String> {
+    let maximum = crate::operator::MAX_CONTINUATION_CHECKPOINT_BYTES;
+    if !(1..=maximum).contains(&config.max_checkpoint_bytes) {
+        return Err(format!(
+            "Checkpoint capacity must be from 1 to {maximum} bytes"
+        ));
+    }
     let mut store = Store::open(&config.data_dir, &config.genesis)?;
     // Every committed head may start a proven batch, so the producer keeps
     // the encoded execution checkpoint within the continuation bound.

@@ -163,7 +163,14 @@ fn tracked_size_matches_the_encoded_checkpoint() {
         block(&mut store, raw).unwrap();
         let height = store.view().unwrap().head.height;
         if height >= 254 {
-            exact(&store);
+            let bytes = exact(&store);
+            if height == 254 {
+                // One more historical entry is still required.
+                assert!(store.enable_capacity(bytes).is_err());
+            } else if height == 255 {
+                // Equality is sufficient now; subsequent hashes replace old ones.
+                store.enable_capacity(bytes).unwrap();
+            }
         }
     }
 }
@@ -177,14 +184,15 @@ fn a_block_over_the_bound_is_refused_without_writing() {
     block(&mut store, signer.next(Some(recipient), 1, vec![])).unwrap();
     let used = exact(&store);
     drop(store);
-    // Room for one more block hash entry plus 104 bytes: less than a new account.
-    let mut store = open(&directory, used + 40 + 104);
+    // Reserve every remaining hash entry, leaving less than a new account.
+    let limit = used + 254 * 40 + 104;
+    let mut store = open(&directory, limit);
     let head = store.view().unwrap().head;
     let fresh = signer.next(Some(Address::repeat_byte(0x74)), 1, vec![]);
     let hash = execution::inspect(&fresh).unwrap().hash;
     assert_eq!(block(&mut store, fresh), Err(CapacityExceeded));
     assert_eq!(store.view().unwrap().head, head);
-    assert_eq!(store.checkpoint_capacity(), Some((used, used + 144)));
+    assert_eq!(store.checkpoint_capacity(), Some((used, limit)));
     assert_eq!(store.pending().unwrap().len(), 1);
     store.discard(hash, "state capacity exhausted").unwrap();
     // A transfer between existing accounts only adds the block hash entry.
@@ -194,7 +202,7 @@ fn a_block_over_the_bound_is_refused_without_writing() {
     drop(store);
     let error = Store::open(&directory.path().join("data"), &development::genesis())
         .unwrap()
-        .enable_capacity(used + 39)
+        .enable_capacity(used + 254 * 40 - 1)
         .unwrap_err();
     assert!(error.contains("already exceeds"), "{error}");
 }
