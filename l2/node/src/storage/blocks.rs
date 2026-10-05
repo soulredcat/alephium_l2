@@ -98,6 +98,17 @@ impl ReadView {
             }
             return Ok(Some(block));
         }
+        // Every commit writes the index, so a chain whose first block is indexed
+        // has no unindexed records and an index miss is simply an unknown hash.
+        let Some(first) = self.block(1)? else {
+            return Ok(None);
+        };
+        if self
+            .get(key(0x31, first.head.commit_id.as_slice()))?
+            .is_some()
+        {
+            return Ok(None);
+        }
         // Old records have no derived index. Bound lookup without changing their
         // authoritative commit chain or scanning unlimited history.
         let lower = self.head.height.saturating_sub(255).max(1);
@@ -109,5 +120,83 @@ impl ReadView {
             }
         }
         Ok(None)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::{Store, encoding::key};
+    use crate::{development, execution, protocol::*};
+    use alloy_primitives::{Address, B256, U256};
+
+    fn commit(store: &mut Store, nonce: u64) {
+        let to = Some(Address::repeat_byte(0x77));
+        let raw = development::sign(nonce, to, U256::from(1), vec![], 21_000).unwrap();
+        let info = execution::inspect(&raw).unwrap();
+        let pending = Pending {
+            hash: info.hash,
+            sender: info.sender,
+            raw: raw.clone(),
+        };
+        store.admit(pending).unwrap();
+        let view = store.view().unwrap();
+        let context = BlockContext {
+            number: view.head.height + 1,
+            timestamp: view.head.timestamp,
+            gas_limit: BLOCK_GAS,
+        };
+        let result = execution::execute_block(view.clone(), &[raw], context).unwrap();
+        store
+            .commit(BlockCommit {
+                parent: view.head.clone(),
+                context,
+                transactions: result.receipts.iter().map(|r| r.hash).collect(),
+                changes: result.changes,
+                receipts: result.receipts,
+                rejected: result.rejected,
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn hash_lookup_uses_the_index_and_keeps_the_legacy_scan() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut store =
+            Store::open(&directory.path().join("data"), &development::genesis()).unwrap();
+        let unknown = B256::repeat_byte(0x42);
+        assert!(
+            store
+                .view()
+                .unwrap()
+                .block_by_hash(unknown)
+                .unwrap()
+                .is_none()
+        );
+        for nonce in 0..3 {
+            commit(&mut store, nonce);
+        }
+        let view = store.view().unwrap();
+        let hashes: Vec<_> = (0..=3)
+            .map(|height| view.block(height).unwrap().unwrap().head.commit_id)
+            .collect();
+        let found = |view: &super::ReadView| -> Vec<Option<u64>> {
+            hashes
+                .iter()
+                .map(|hash| {
+                    view.block_by_hash(*hash)
+                        .unwrap()
+                        .map(|block| block.head.height)
+                })
+                .collect()
+        };
+        assert_eq!(found(&view), [Some(0), Some(1), Some(2), Some(3)]);
+        assert!(view.block_by_hash(unknown).unwrap().is_none());
+        // A chain from before the derived index still resolves by bounded scan.
+        for hash in &hashes[1..] {
+            store.items.remove(key(0x31, hash.as_slice())).unwrap();
+        }
+        let legacy = store.view().unwrap();
+        assert_eq!(found(&legacy), [Some(0), Some(1), Some(2), Some(3)]);
+        assert!(legacy.block_by_hash(unknown).unwrap().is_none());
     }
 }
