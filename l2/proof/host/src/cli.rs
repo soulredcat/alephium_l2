@@ -3,14 +3,15 @@
 use crate::{HostResult, inputs};
 use std::{env, ffi::OsString, path::PathBuf, process::Command};
 
-const USAGE: &str = "Usage: alephium-l2-transition-prover --input <private-transition.json> --guest <ProgramBinary> --expected-image-id <64-hex> --prover-sha256 <64-hex> --output <new-directory>";
+const USAGE: &str = "Usage: alephium-l2-transition-prover --input <private-transition.json> --guest <ProgramBinary> --expected-image-id <64-hex> --prover-sha256 <64-hex> (--output <new-directory> | --execute-only)";
 pub const SDK_VERSION: &str = "3.0.3";
 pub const SDK_REVISION: &str = "14b5d588dd01cf4f7ba804d8bb0a61264e6ae2c6";
 
 pub struct Config {
     pub input: PathBuf,
     pub guest: PathBuf,
-    pub output: PathBuf,
+    /// Absent exactly when the run is an execution-only preflight.
+    pub output: Option<PathBuf>,
     pub expected_image_id: [u8; 32],
     pub prover_sha256: [u8; 32],
 }
@@ -22,8 +23,15 @@ impl Config {
         let mut output = None;
         let mut image_id = None;
         let mut prover_sha256 = None;
+        let mut execute_only = false;
         let mut args = env::args_os().skip(1);
         while let Some(flag) = args.next() {
+            if flag == "--execute-only" {
+                if std::mem::replace(&mut execute_only, true) {
+                    return Err("Duplicate CLI option.");
+                }
+                continue;
+            }
             let value = args.next().ok_or(USAGE)?;
             if value.is_empty() || value.to_string_lossy().starts_with("--") {
                 return Err(USAGE);
@@ -45,19 +53,22 @@ impl Config {
                 return Err("Duplicate CLI option.");
             }
         }
+        // A preflight writes no artifacts; a proof always needs a new directory.
+        if execute_only == output.is_some() {
+            return Err(USAGE);
+        }
         let config = Self {
             input: input.ok_or(USAGE)?,
             guest: guest.ok_or(USAGE)?,
-            output: output.ok_or(USAGE)?,
+            output,
             expected_image_id: parse_digest(image_id.ok_or(USAGE)?)?,
             prover_sha256: parse_digest(prover_sha256.ok_or(USAGE)?)?,
         };
         // This path is the only user-provided text printed on successful exit.
         if config
             .output
-            .to_string_lossy()
-            .chars()
-            .any(char::is_control)
+            .as_ref()
+            .is_some_and(|output| output.to_string_lossy().chars().any(char::is_control))
         {
             return Err("Output directory contains a control character.");
         }
@@ -71,7 +82,8 @@ pub struct LocalProver {
 }
 
 impl LocalProver {
-    pub fn validate(expected_sha256: [u8; 32]) -> HostResult<Self> {
+    /// Docker is only inspected when a Groth16 proof will actually be produced.
+    pub fn validate(expected_sha256: [u8; 32], groth16: bool) -> HostResult<Self> {
         if risc0_zkvm::VERSION != SDK_VERSION {
             return Err("Host SDK does not match the reviewed 3.0.3 pin.");
         }
@@ -138,7 +150,9 @@ impl LocalProver {
         {
             return Err("Explicit r0vm does not report the required 3.0.3 version.");
         }
-        validate_local_docker()?;
+        if groth16 {
+            validate_local_docker()?;
+        }
         Ok(Self {
             server_path,
             server_sha256,

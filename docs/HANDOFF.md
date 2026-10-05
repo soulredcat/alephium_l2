@@ -33,7 +33,7 @@ Required source/reference fixtures are under `l2/`. Private witnesses, databases
 
 1. Confirm source/pins/resources; assign one build/ports/integration coordinator and bounded independent reviewers.
 2. Compile affected native packages; recreate four-block/precompile fixtures. Check binary producer/core agreement, canonical encoding, hidden state, suffix roots, mutations and native secp256k1 versus portable k256.
-3. Implement bounded **execution-only SDK preflight** in existing host tooling. It is absent today. Use `Executor::execute` on the pinned `ExternalProver` with the same input framing/cycle ceiling, require `Halted(0)`, and compare exact canonical journals. Ordinary `r0vm` CLI and `--receipt-kind composite` still prove; they are not execution-only substitutes. Check resource bounds before another proof attempt, without a benchmark campaign.
+3. Run the bounded **execution-only preflight**: the proof host's `--execute-only` mode (in place of `--output`) uses `Executor::execute` on the pinned `ExternalProver` with the same input framing/cycle ceiling, requires `Halted(0)`, compares the exact canonical journal, writes no artifacts and needs no Docker. Ordinary `r0vm` CLI and `--receipt-kind composite` still prove; they are not execution-only substitutes. Check resource bounds before another proof attempt, without a benchmark campaign.
 4. Build/package/repin the guest and preflight checkpoint/precompile inputs. Resolve disagreement and continuation/recovery budgets without weakening validation, durability or proof parameters.
 5. Generate a real bounded local Groth16 receipt; independently verify image/journal and exercise `--staged-actual`. Close P4 before public settlement; preserve failures and distinguish synthetic from actual network evidence.
 
@@ -81,6 +81,8 @@ Build from `l2/proof` to apply its target configuration. Set `RISC0_RUST_TOOLCHA
 ```
 
 The helper converts raw ELF to official kernel-packaged `ProgramBinary`. Review its manifest/image and pass the missing execution-only preflight before continuing.
+
+Preflight the packaged guest with the same environment restrictions as the proof command below, replacing `--output "$work/proof"` with `--execute-only`. It prints only the exit status, user cycles/segments against the ceiling and the public journal SHA-256.
 
 For an authorized proof, supply independent reviewed `expected_image_id` and `prover_sha256` values, plus an absolute local `RISC0_SERVER_PATH`. Use only local IPC and a local Docker socket. Remove development mode, Bonsai configuration, inherited profiler/work-directory overrides, and remote Docker routing; disable tracing/backtraces. The host enforces these restrictions and an existing 268,435,456-cycle ceiling, which is not a qualified runtime SLA.
 
