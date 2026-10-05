@@ -139,6 +139,8 @@ pub struct TransactionInfo {
     pub sender: Address,
     pub nonce: u64,
     pub gas_limit: u64,
+    /// Effective price per gas at this profile's fixed zero base fee.
+    pub gas_price: u128,
 }
 
 #[derive(Clone, Debug)]
