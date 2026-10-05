@@ -1,5 +1,5 @@
 //! One local SDK flow, plus a counted ambiguous-reply fixture; no settlement claim.
-use alephium_l2_node::{development, protocol::CHAIN_ID};
+use alephium_l2_node::{development, protocol::CHAIN_ID, storage::Store};
 use alephium_l2_sdk::{
     Client, ClientError, ExpectedNetwork, Lifecycle, PreparedTransaction, Receipt,
 };
@@ -12,12 +12,10 @@ mod mock;
 #[path = "support/sdk_runtime.rs"]
 mod runtime;
 
-fn expected_network() -> ExpectedNetwork {
+fn expected_network(genesis_id: B256) -> ExpectedNetwork {
     ExpectedNetwork {
         chain_id: CHAIN_ID,
-        genesis_id: "0x4a2c8a134bb0fbc3febf67981d953f67404813209cf28aecf1a42cf1308b39a7"
-            .parse()
-            .unwrap(),
+        genesis_id,
         rpc_profile: "development/c5-v1".to_owned(),
     }
 }
@@ -85,11 +83,18 @@ fn sdk_identity_durable_flow_restart_and_ambiguous_reply() {
     let fixture = tempfile::tempdir().unwrap();
     let genesis = fixture.path().join("genesis.json");
     let data = fixture.path().join("sdk-chain");
-    std::fs::write(
-        &genesis,
-        serde_json::to_vec(&development::genesis()).unwrap(),
-    )
-    .unwrap();
+    let configuration = development::genesis();
+    std::fs::write(&genesis, serde_json::to_vec(&configuration).unwrap()).unwrap();
+    // Derive the canonical pin from the supplied genesis before the HTTP node
+    // starts; never learn the expected identity from the endpoint being checked.
+    let genesis_id = {
+        let store = Store::open(&data, &configuration).unwrap();
+        let view = store.view().unwrap();
+        assert_eq!(view.chain_id(), CHAIN_ID);
+        assert_eq!(view.head.height, 0);
+        assert_eq!(view.pending_counter().unwrap(), 0);
+        view.head.genesis_id
+    };
     let reservation = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = reservation.local_addr().unwrap().port();
     drop(reservation);
@@ -97,12 +102,12 @@ fn sdk_identity_durable_flow_restart_and_ambiguous_reply() {
     let sender = development::address();
     let transaction = prepared(0, recipient);
     let mut node = runtime::OwnedNode::start(port, &data, &genesis);
-    let client = Client::connect(node.endpoint(), expected_network()).unwrap();
+    let client = Client::connect(node.endpoint(), expected_network(genesis_id)).unwrap();
     assert_eq!(client.node_info().chain_id, CHAIN_ID);
-    assert_eq!(client.node_info().genesis_id, expected_network().genesis_id);
+    assert_eq!(client.node_info().genesis_id, genesis_id);
     assert_eq!(client.node_info().rpc_profile, "development/c5-v1");
     assert_eq!(client.node_info().height, 0);
-    let mut wrong_network = expected_network();
+    let mut wrong_network = expected_network(genesis_id);
     wrong_network.genesis_id = B256::ZERO;
     assert!(
         matches!(
@@ -145,7 +150,7 @@ fn sdk_identity_durable_flow_restart_and_ambiguous_reply() {
     );
     node.kill();
     node = runtime::OwnedNode::start(port, &data, &genesis);
-    let restarted = Client::connect(node.endpoint(), expected_network()).unwrap();
+    let restarted = Client::connect(node.endpoint(), expected_network(genesis_id)).unwrap();
     assert_eq!(restarted.node_info().height, 1);
     assert_eq!(restarted.balance(sender).unwrap(), balance);
     assert_eq!(restarted.balance(recipient).unwrap(), U256::from(123));
@@ -160,8 +165,13 @@ fn sdk_identity_durable_flow_restart_and_ambiguous_reply() {
     node.kill();
 
     // This fixture only checks client transport/lifecycle semantics, not execution.
-    let mock = mock::Mock::start(expected_network(), transaction.hash(), sender, recipient);
-    let client = Client::connect(mock.endpoint(), expected_network()).unwrap();
+    let mock = mock::Mock::start(
+        expected_network(genesis_id),
+        transaction.hash(),
+        sender,
+        recipient,
+    );
+    let client = Client::connect(mock.endpoint(), expected_network(genesis_id)).unwrap();
     assert_eq!(client.balance(sender).unwrap(), U256::from(123));
     assert_eq!(client.nonce(sender, false).unwrap(), 7);
     assert_eq!(client.nonce(sender, true).unwrap(), 8);
