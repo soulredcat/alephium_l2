@@ -1,0 +1,62 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Development-only creation and acceptance gate for one staged receipt.
+// Consumers must pin the canonical factory ID and reviewed immutable fields.
+// A clone of this factory, or an arbitrary instance of the verifier template,
+// has no authority over the child derived from the canonical factory ID.
+// There is no registration, reset, migration, refund or spending of held assets.
+// Live creation requires separate signing/deployment/funding authorization.
+
+Contract Risc0StagedReceiptFactory(templateContractId: ByteVec,
+    expectedTemplateCodeHash: ByteVec, fpModulus: U256) {
+    const EXPECTED_FP_MODULUS = 21888242871839275222246405745257275088696311157297823662689037894645226208583
+    const CHILD_PATH = #7631
+    const ZERO_STATEMENT = #0000000000000000000000000000000000000000000000000000000000000000
+    const FACTORY_INVALID_PARAMETERS = 1510
+    const FACTORY_WRONG_CODE = 1511
+    const FACTORY_ALREADY_CREATED = 1512
+    const FACTORY_CHILD_MISSING = 1513
+    const FACTORY_NOT_ACCEPTED = 1514
+    const FACTORY_WRONG_STATEMENT = 1515
+
+    fn checkParameters() -> () {
+        assert!(fpModulus == EXPECTED_FP_MODULUS, FACTORY_INVALID_PARAMETERS)
+        assert!(size!(templateContractId) == 32, FACTORY_INVALID_PARAMETERS)
+        assert!(size!(expectedTemplateCodeHash) == 32, FACTORY_INVALID_PARAMETERS)
+    }
+
+    // This factory alone chooses every child field. A caller supplies funding,
+    // never a path, checkpoint, statement, code or encoded initial state.
+    @using(preapprovedAssets = true, checkExternalCaller = false)
+    pub fn create() -> ByteVec {
+        checkParameters()
+        assert!(contractCodeHash!(templateContractId) == expectedTemplateCodeHash,
+            FACTORY_WRONG_CODE)
+        let expectedChild = subContractId!(CHILD_PATH)
+        assert!(!contractExists!(expectedChild), FACTORY_ALREADY_CREATED)
+        let zero18 = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        let zero12 = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        let zero6 = [0, 0, 0, 0, 0, 0]
+        // One immutable prime; mutable order is status/cursor (2), pairs (18),
+        // points (18), inverse/root/accumulator (3*12), correction (6), id (32B).
+        let (initialImmFields, initialMutFields) = Risc0StagedReceiptVerifier.encodeFields!(
+            fpModulus, 0, 0, zero18, zero18, zero12, zero12, zero12, zero6, ZERO_STATEMENT)
+        let childId = copyCreateSubContract!{callerAddress!() -> ALPH: minimalContractDeposit!()}(
+            CHILD_PATH, templateContractId, initialImmFields, initialMutFields)
+        assert!(childId == expectedChild, FACTORY_INVALID_PARAMETERS)
+        return childId
+    }
+
+    // The canonical derived child is the sole acceptance authority. A caller
+    // cannot substitute an already-accepted instance, even with identical code.
+    pub fn accepted(expectedStatement: ByteVec) -> ByteVec {
+        checkParameters()
+        assert!(size!(expectedStatement) == 32, FACTORY_WRONG_STATEMENT)
+        let childId = subContractId!(CHILD_PATH)
+        assert!(contractExists!(childId), FACTORY_CHILD_MISSING)
+        assert!(contractCodeHash!(childId) == expectedTemplateCodeHash, FACTORY_WRONG_CODE)
+        let (phase, statement) = Risc0StagedReceiptVerifier(childId).getAcceptance()
+        assert!(phase == 3, FACTORY_NOT_ACCEPTED)
+        assert!(statement == expectedStatement, FACTORY_WRONG_STATEMENT)
+        return statement
+    }
+}

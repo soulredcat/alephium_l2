@@ -50,6 +50,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "alephium-l2-verifier-tool"
+version = "0.1.0"
+dependencies = [
+ "ark-bn254",
+ "ark-ec",
+ "ark-ff 0.6.0",
+ "hex",
+ "num-bigint",
+ "reqwest",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "allocator-api2"
 version = "0.2.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"

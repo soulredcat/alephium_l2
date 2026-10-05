@@ -1,0 +1,18 @@
+[package]
+name = "alephium-l2-transition-prover"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+alephium-l2-transition-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+hex.workspace = true
+risc0-zkvm = { workspace = true, features = ["client", "disable-dev-mode"] }
+
+[dev-dependencies]
+risc0-binfmt.workspace = true
+risc0-zkos-v1compat.workspace = true

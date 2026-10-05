@@ -1,0 +1,149 @@
+{
+  "schema": 1,
+  "updated": "2026-10-05",
+  "scope": "Portable source handoff for P4-P8 continuation; curated recorded results, not a new run",
+  "status": "paused-awaiting-human-resumption",
+  "mainnet_complete": false,
+  "all_p4_p8_checkboxes_complete": false,
+  "private_material_included": false,
+  "validation_this_handoff": {
+    "source_closure": "checked statically",
+    "builds_or_tests_run": true,
+    "wsl_or_prover_started": false,
+    "live_operations_performed": false,
+    "compiler_check": "PASSED: cargo check --workspace --all-targets --locked --offline; root node/sdk/verifier workspace only",
+    "proof_workspace_current_validation": "not run; explicitly pending P4 continuation",
+    "packaging_checks": [
+      "187 source/config/fixture/license files exact against paused source",
+      "127 literal Rust includes/path modules resolved",
+      "12 oracle manifest entries verified",
+      "only README.md and docs/HANDOFF.md Markdown",
+      "no tested credential patterns found"
+    ]
+  },
+  "recorded_checks": [
+    {
+      "scope": "Original-host EVM development transfer/deploy/call/revert/receipt/restart",
+      "status": "passed",
+      "receipt_count": 4,
+      "source_record_sha256": "733e7218c675ba9246f943b2126e3d1b973807c768678470b3700f8616626f79",
+      "genesis_id": "0xe5f102349b3cd14ac0bb880abf0da8a6eb66f5442b1cb6fe3640eaeabc8aea1c",
+      "state_and_receipts_equal": true,
+      "alephium_settlement": false,
+      "chain_id": 424245,
+      "id": "P1-P3"
+    },
+    {
+      "factory_passed": true,
+      "staged_vm_gas_sum": 7043031,
+      "live_deployment": false,
+      "staged_passed": true,
+      "id": "C16",
+      "staged_requests": 39,
+      "source_record_sha256": "4ac61ad362c76fc15287228023676f0683d22065dd70982dd443130cf13be0ac",
+      "ralph_sources_still_match_recorded_hashes": true,
+      "max_advance_vm_gas": 668449,
+      "historical_receipt_only": true,
+      "status": "closed-development-qualification",
+      "factory_requests": 25,
+      "proof_transitions": 11,
+      "scope": "development-only authenticated staged historical receipt and canonical factory synthetic VM qualification"
+    },
+    {
+      "status": "passed",
+      "chains": [
+        424243,
+        424244
+      ],
+      "id": "C17",
+      "scope": "Two isolated configurable chains; signature/genesis/database identity and replay/restart",
+      "source_record_sha256": "3c76c7ee191997d34511cf2d8ee9fbc0342a94558389d9f0116ef02dfc9b3f5e"
+    },
+    {
+      "status": "passed historically",
+      "current_schema3_verified": false,
+      "source_record_sha256": "7585a80592d812d7e88a09e9eda280369315cfe49053c621a5d178f2c2ce2c0c",
+      "scope": "Native core/runtime agreement and mutation/suffix checks before later binary3 edits",
+      "id": "P4-schema2-core",
+      "blocks": 4,
+      "transactions": 4
+    },
+    {
+      "status": "passed",
+      "source_record_sha256": "402ed8865b1550d0efadefa6dcfa5e163feb787c8fb9d1fa712d3eb404901263",
+      "scope": "Producer only; portable-core/guest parity still pending",
+      "id": "P4-native-ecrecover",
+      "blocks": 12,
+      "cases": 11
+    },
+    {
+      "scope": "Actual immutable runtime backup, checkpoint capture and strict binary roundtrip/rejection checks",
+      "status": "passed",
+      "schema": 3,
+      "end_height": 4,
+      "blocks": 2,
+      "guest_verified": false,
+      "parent_height": 2,
+      "source_record_sha256": "1ee8e5d85479c144db02a9a7d85f5a657d4498cd924f3c88d04cd9c2d9c21a9b",
+      "id": "P4-native-checkpoint-export"
+    }
+  ],
+  "current_code": {
+    "latest_proof_core_and_guest_validation": "pending after binary3/shared-codec changes",
+    "producer_resource_and_exit_headroom": "unqualified; enforce before mainnet",
+    "completed_current_transition_receipt": false,
+    "checkpoint_schema": 3,
+    "interrupted_attempt": "Stopped by operator; no accepted receipt or resumable proof claim",
+    "max_suffix_blocks": 256,
+    "canonical_checkpoint_profile_bytes": 8388608,
+    "execution_only_preflight": "required next; not implemented",
+    "complete_input_bytes": 16777216,
+    "checkpoint_wire": "ALEPHIUM-L2/TRANSITION/WIRE/V3"
+  },
+  "pins": {
+    "guest_session_limit_cycles": 268435456,
+    "ralph_jar_sha256": "a8b221ee71b36a1a960da17b0eb32a490ebf8c4a034414a46d0ed57957e832ac",
+    "historical_program_pin_valid_for_current_v3": false,
+    "risc0_revision": "14b5d588dd01cf4f7ba804d8bb0a61264e6ae2c6",
+    "groth16_verifier_parameters": "73c457ba541936f0d907daf0c7253a39a9c5c427c225ba7709e44702d3c6eedc",
+    "kernel_sha256": "7ffd942e4e8babd771094f549ad080cfea8ecb2c05c986e275c011f41979d921",
+    "kernel_package": "risc0-zkos-v1compat/2.2.0",
+    "historical_schema2_image_id": "16b7cbb0deab8b38c39a3c953af60268a40460394fba9b1c55bf713cf79358a8",
+    "risc0_sdk": "3.0.3",
+    "docker_image": "risczero/risc0-groth16-prover:v2025-04-03.1",
+    "guest_rust": "RISC0 r0.1.94.1",
+    "ralph_compiler": "v4.7.0",
+    "historical_linux_x86_64_r0vm_sha256": "2acdf550f9aca4d05b74072463e4ed307c3824309c754a5cb5f93aa84f3390e6",
+    "host_rust": "1.97.1",
+    "recorded_docker_digest": "sha256:7f173963196570b7a71816ed70565a4579264c5d2e3e0ecb028102538ad0e331"
+  },
+  "environment_findings": {
+    "observed_date": "2026-10-05",
+    "original_host_fallback": "127.0.0.1:12973; network 0 v4.7.0; explicitly authorized read-only synthetic VM only",
+    "cargo_cache": "Keep one consistent Cargo home/toolchain per target; source-root switching caused duplicate fingerprints/shared build-script outputs",
+    "metadata_network_id": 1,
+    "fallback_is_portable_endpoint": false,
+    "public_testnet": "https://node.testnet.alephium.org",
+    "filesystem": "DrvFS mode 0777 observed despite Unix mode requests; production privacy/durability qualification remains open",
+    "metadata_version": "v4.7.1",
+    "simulation_post_http_status": 403,
+    "wsl": "Explicitly shut down by operator; do not restart automatically"
+  },
+  "omitted": [
+    "private signed transition witnesses",
+    "database backups and node state",
+    "signing/publication intent records",
+    "private receipts and proof binaries",
+    "toolchains, compiler binaries and Docker images",
+    "machine-specific PIDs/session handles/local absolute paths"
+  ],
+  "next_acceptance": "Current schema3 native/core/guest agreement, then actual proof and canonical target acceptance; afterward all P5-P8 requirements in docs/HANDOFF.md",
+  "contribution_workflow": {
+    "implementation": "topic branch and pull request",
+    "reviewer": "designated reviewing assistant",
+    "passing_pr": "merge to main after relevant tests and review pass, automatically closing PR",
+    "failing_pr": "leave open with actionable findings",
+    "direct_main_push": false,
+    "handoff_merge_is_feature_or_mainnet_acceptance": false
+  }
+}

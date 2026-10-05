@@ -1,0 +1,321 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2020 Consensys Software Inc. (Gnark Crypto reference).
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//     https://www.apache.org/licenses/LICENSE-2.0
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// Fp6 algebra translated from Gnark Crypto revision
+// 703a260c2f991d01e245adf53d20f76af4210c5f, ecc/bn254/internal/fptower/e6.go:
+// Add, Sub, Neg, Mul, Square, Inverse, MulByNonResidue, MulByE2 and MulBy01.
+// https://github.com/Consensys/gnark-crypto/blob/703a260c2f991d01e245adf53d20f76af4210c5f/ecc/bn254/internal/fptower/e6.go
+// MulByE2/MulBy01 are reached by the selected ordinary MillerLoop through
+// e12_pairing.go MulBy034 and MulBy01234 at the same source revision.
+// Layout [B0.real, B0.imag, B1.real, B1.imag, B2.real, B2.imag] represents
+// B0 + B1*v + B2*v^2, with v^3 = 9+u and u^2 = -1.
+// Every component is a canonical Fp U256. Values and fresh temporaries preserve
+// the upstream alias-safe formulas; no Montgomery literal is copied.
+// Native component operations run only after complete canonical input checks.
+// For canonical x, p-x is safe even at zero; addModN returns a canonical value.
+
+Abstract Contract Bn254Fp6(fpModulus: U256) extends Bn254Fp2(fpModulus) {
+    const FP6_ZERO_INVERSE = 1021
+
+    @inline fn fp6Validate(a: [U256; 6]) -> () {
+        for (let mut index = 0; index < 6; index = index + 1) {
+            assert!(a[index] < fpModulus, FP_INVALID_ELEMENT)
+        }
+    }
+
+    // Assemble the fixed tower layout from three canonical Fp2 coefficients.
+    @inline fn fp6Compose(b0: [U256; 2], b1: [U256; 2], b2: [U256; 2]) -> [U256; 6] {
+        fp2Validate([b0[0], b0[1]])
+        fp2Validate([b1[0], b1[1]])
+        fp2Validate([b2[0], b2[1]])
+        return [b0[0], b0[1], b1[0], b1[1], b2[0], b2[1]]
+    }
+
+    fn fp6Add(a: [U256; 6], b: [U256; 6]) -> [U256; 6] {
+        fp6Validate([a[0], a[1], a[2], a[3], a[4], a[5]])
+        fp6Validate([b[0], b[1], b[2], b[3], b[4], b[5]])
+        return [
+            addModN!(a[0], b[0], fpModulus), addModN!(a[1], b[1], fpModulus),
+            addModN!(a[2], b[2], fpModulus), addModN!(a[3], b[3], fpModulus),
+            addModN!(a[4], b[4], fpModulus), addModN!(a[5], b[5], fpModulus)
+        ]
+    }
+
+    fn fp6Sub(a: [U256; 6], b: [U256; 6]) -> [U256; 6] {
+        fp6Validate([a[0], a[1], a[2], a[3], a[4], a[5]])
+        fp6Validate([b[0], b[1], b[2], b[3], b[4], b[5]])
+        return [
+            addModN!(a[0], fpModulus - b[0], fpModulus),
+            addModN!(a[1], fpModulus - b[1], fpModulus),
+            addModN!(a[2], fpModulus - b[2], fpModulus),
+            addModN!(a[3], fpModulus - b[3], fpModulus),
+            addModN!(a[4], fpModulus - b[4], fpModulus),
+            addModN!(a[5], fpModulus - b[5], fpModulus)
+        ]
+    }
+
+    fn fp6Neg(a: [U256; 6]) -> [U256; 6] {
+        fp6Validate([a[0], a[1], a[2], a[3], a[4], a[5]])
+        return [
+            addModN!(0, fpModulus - a[0], fpModulus),
+            addModN!(0, fpModulus - a[1], fpModulus),
+            addModN!(0, fpModulus - a[2], fpModulus),
+            addModN!(0, fpModulus - a[3], fpModulus),
+            addModN!(0, fpModulus - a[4], fpModulus),
+            addModN!(0, fpModulus - a[5], fpModulus)
+        ]
+    }
+
+    // e6.go Mul: Algorithm 13, preserving the three diagonal products.
+    fn fp6Mul(a: [U256; 6], b: [U256; 6]) -> [U256; 6] {
+        fp6Validate([a[0], a[1], a[2], a[3], a[4], a[5]])
+        fp6Validate([b[0], b[1], b[2], b[3], b[4], b[5]])
+        // All following modular results are canonical; no intermediate guards.
+        // Three-multiply Fp2 Karatsuba retains each diagonal A_i*B_i.
+        let t0RealProduct = mulModN!(a[0], b[0], fpModulus)
+        let t0ImaginaryProduct = mulModN!(a[1], b[1], fpModulus)
+        let t0SumProduct = mulModN!(addModN!(a[0], a[1], fpModulus),
+            addModN!(b[0], b[1], fpModulus), fpModulus)
+        let t0Real = addModN!(t0RealProduct, fpModulus - t0ImaginaryProduct, fpModulus)
+        let t0Imaginary = addModN!(t0SumProduct,
+            fpModulus - addModN!(t0RealProduct, t0ImaginaryProduct, fpModulus), fpModulus)
+        let t1RealProduct = mulModN!(a[2], b[2], fpModulus)
+        let t1ImaginaryProduct = mulModN!(a[3], b[3], fpModulus)
+        let t1SumProduct = mulModN!(addModN!(a[2], a[3], fpModulus),
+            addModN!(b[2], b[3], fpModulus), fpModulus)
+        let t1Real = addModN!(t1RealProduct, fpModulus - t1ImaginaryProduct, fpModulus)
+        let t1Imaginary = addModN!(t1SumProduct,
+            fpModulus - addModN!(t1RealProduct, t1ImaginaryProduct, fpModulus), fpModulus)
+        let t2RealProduct = mulModN!(a[4], b[4], fpModulus)
+        let t2ImaginaryProduct = mulModN!(a[5], b[5], fpModulus)
+        let t2SumProduct = mulModN!(addModN!(a[4], a[5], fpModulus),
+            addModN!(b[4], b[5], fpModulus), fpModulus)
+        let t2Real = addModN!(t2RealProduct, fpModulus - t2ImaginaryProduct, fpModulus)
+        let t2Imaginary = addModN!(t2SumProduct,
+            fpModulus - addModN!(t2RealProduct, t2ImaginaryProduct, fpModulus), fpModulus)
+
+        // Cross 12 = (A1+A2)*(B1+B2)-t1-t2, still three Fp multiplies.
+        let sumA12Real = addModN!(a[2], a[4], fpModulus)
+        let sumA12Imaginary = addModN!(a[3], a[5], fpModulus)
+        let sumB12Real = addModN!(b[2], b[4], fpModulus)
+        let sumB12Imaginary = addModN!(b[3], b[5], fpModulus)
+        let product12Real = mulModN!(sumA12Real, sumB12Real, fpModulus)
+        let product12Imaginary = mulModN!(sumA12Imaginary, sumB12Imaginary, fpModulus)
+        let product12Sum = mulModN!(addModN!(sumA12Real, sumA12Imaginary, fpModulus),
+            addModN!(sumB12Real, sumB12Imaginary, fpModulus), fpModulus)
+        let reduced12Real = addModN!(product12Real, fpModulus - addModN!(
+            product12Imaginary, addModN!(t1Real, t2Real, fpModulus), fpModulus), fpModulus)
+        let reduced12Imaginary = addModN!(product12Sum, fpModulus - addModN!(
+            addModN!(product12Real, product12Imaginary, fpModulus),
+            addModN!(t1Imaginary, t2Imaginary, fpModulus), fpModulus), fpModulus)
+
+        // Cross 01 = (A0+A1)*(B0+B1)-t0-t1.
+        let sumA01Real = addModN!(a[0], a[2], fpModulus)
+        let sumA01Imaginary = addModN!(a[1], a[3], fpModulus)
+        let sumB01Real = addModN!(b[0], b[2], fpModulus)
+        let sumB01Imaginary = addModN!(b[1], b[3], fpModulus)
+        let product01Real = mulModN!(sumA01Real, sumB01Real, fpModulus)
+        let product01Imaginary = mulModN!(sumA01Imaginary, sumB01Imaginary, fpModulus)
+        let product01Sum = mulModN!(addModN!(sumA01Real, sumA01Imaginary, fpModulus),
+            addModN!(sumB01Real, sumB01Imaginary, fpModulus), fpModulus)
+        let reduced01Real = addModN!(product01Real, fpModulus - addModN!(
+            product01Imaginary, addModN!(t0Real, t1Real, fpModulus), fpModulus), fpModulus)
+        let reduced01Imaginary = addModN!(product01Sum, fpModulus - addModN!(
+            addModN!(product01Real, product01Imaginary, fpModulus),
+            addModN!(t0Imaginary, t1Imaginary, fpModulus), fpModulus), fpModulus)
+
+        // Cross 02 = (A0+A2)*(B0+B2)-t0-t2.
+        let sumA02Real = addModN!(a[0], a[4], fpModulus)
+        let sumA02Imaginary = addModN!(a[1], a[5], fpModulus)
+        let sumB02Real = addModN!(b[0], b[4], fpModulus)
+        let sumB02Imaginary = addModN!(b[1], b[5], fpModulus)
+        let product02Real = mulModN!(sumA02Real, sumB02Real, fpModulus)
+        let product02Imaginary = mulModN!(sumA02Imaginary, sumB02Imaginary, fpModulus)
+        let product02Sum = mulModN!(addModN!(sumA02Real, sumA02Imaginary, fpModulus),
+            addModN!(sumB02Real, sumB02Imaginary, fpModulus), fpModulus)
+        let reduced02Real = addModN!(product02Real, fpModulus - addModN!(
+            product02Imaginary, addModN!(t0Real, t2Real, fpModulus), fpModulus), fpModulus)
+        let reduced02Imaginary = addModN!(product02Sum, fpModulus - addModN!(
+            addModN!(product02Real, product02Imaginary, fpModulus),
+            addModN!(t0Imaginary, t2Imaginary, fpModulus), fpModulus), fpModulus)
+
+        // C0=t0+xi*Cross12, C1=Cross01+xi*t2, C2=Cross02+t1; xi=9+u.
+        return [
+            addModN!(t0Real, addModN!(mulModN!(reduced12Real, 9, fpModulus),
+                fpModulus - reduced12Imaginary, fpModulus), fpModulus),
+            addModN!(t0Imaginary, addModN!(reduced12Real,
+                mulModN!(reduced12Imaginary, 9, fpModulus), fpModulus), fpModulus),
+            addModN!(reduced01Real, addModN!(mulModN!(t2Real, 9, fpModulus),
+                fpModulus - t2Imaginary, fpModulus), fpModulus),
+            addModN!(reduced01Imaginary, addModN!(t2Real,
+                mulModN!(t2Imaginary, 9, fpModulus), fpModulus), fpModulus),
+            addModN!(reduced02Real, t1Real, fpModulus),
+            addModN!(reduced02Imaginary, t1Imaginary, fpModulus)
+        ]
+    }
+
+    // e6.go Square: Algorithm 16, with both doubled mixed products explicit.
+    fn fp6Square(a: [U256; 6]) -> [U256; 6] {
+        fp6Validate([a[0], a[1], a[2], a[3], a[4], a[5]])
+        let a0 = [a[0], a[1]]
+        let a1 = [a[2], a[3]]
+        let a2 = [a[4], a[5]]
+        let product01 = fp2Mul(a0, a1)
+        let doubled01 = fp2Add([product01[0], product01[1]], [product01[0], product01[1]])
+        let square2 = fp2Square([a2[0], a2[1]])
+        let c1 = fp2Add(fp2MulNonResidue([square2[0], square2[1]]), [doubled01[0], doubled01[1]])
+        let difference = fp2Sub([doubled01[0], doubled01[1]], [square2[0], square2[1]])
+        let square0 = fp2Square([a0[0], a0[1]])
+        let alternating = fp2Add(fp2Sub([a0[0], a0[1]], [a1[0], a1[1]]), [a2[0], a2[1]])
+        let product12 = fp2Mul(a1, a2)
+        let doubled12 = fp2Add([product12[0], product12[1]], [product12[0], product12[1]])
+        let alternatingSquare = fp2Square([alternating[0], alternating[1]])
+        let c0 = fp2Add(fp2MulNonResidue([doubled12[0], doubled12[1]]), [square0[0], square0[1]])
+        let c2 = fp2Sub(fp2Add(fp2Add([difference[0], difference[1]],
+            [alternatingSquare[0], alternatingSquare[1]]), [doubled12[0], doubled12[1]]),
+            [square0[0], square0[1]])
+        return fp6Compose([c0[0], c0[1]], [c1[0], c1[1]], [c2[0], c2[1]])
+    }
+
+    // e6.go Inverse: Algorithm 17 with the upstream correction c2=t1-t4.
+    // Unlike upstream zero-return behavior, a zero element is rejected.
+    fn fp6Inv(a: [U256; 6]) -> [U256; 6] {
+        fp6Validate([a[0], a[1], a[2], a[3], a[4], a[5]])
+        assert!(a[0] != 0 || a[1] != 0 || a[2] != 0 || a[3] != 0 || a[4] != 0 || a[5] != 0, FP6_ZERO_INVERSE)
+        let a0 = [a[0], a[1]]
+        let a1 = [a[2], a[3]]
+        let a2 = [a[4], a[5]]
+        let t0 = fp2Square([a0[0], a0[1]])
+        let t1 = fp2Square([a1[0], a1[1]])
+        let t2 = fp2Square([a2[0], a2[1]])
+        let t3 = fp2Mul(a0, a1)
+        let t4 = fp2Mul(a0, a2)
+        let t5 = fp2Mul(a1, a2)
+        let c0 = fp2Add(fp2Neg(fp2MulNonResidue([t5[0], t5[1]])), [t0[0], t0[1]])
+        let c1 = fp2Sub(fp2MulNonResidue([t2[0], t2[1]]), [t3[0], t3[1]])
+        let c2 = fp2Sub([t1[0], t1[1]], [t4[0], t4[1]])
+        let t6 = fp2Mul(a0, c0)
+        let d1 = fp2Mul(a2, c1)
+        let d2 = fp2Mul(a1, c2)
+        let denominator = fp2Add([t6[0], t6[1]],
+            fp2MulNonResidue(fp2Add([d1[0], d1[1]], [d2[0], d2[1]])))
+        let inverseDenominator = fp2Inv(denominator)
+        return fp6Compose(
+            fp2Mul(c0, inverseDenominator),
+            fp2Mul(c1, inverseDenominator),
+            fp2Mul(c2, inverseDenominator)
+        )
+    }
+
+    // Multiply by v: (B0,B1,B2) becomes ((9+u)*B2,B0,B1).
+    fn fp6MulNonResidue(a: [U256; 6]) -> [U256; 6] {
+        fp6Validate([a[0], a[1], a[2], a[3], a[4], a[5]])
+        let c0 = fp2MulNonResidue([a[4], a[5]])
+        return fp6Compose([c0[0], c0[1]], [a[0], a[1]], [a[2], a[3]])
+    }
+
+    // e6.go MulByE2, reached by e12_pairing.go MulBy034.
+    fn fp6MulByFp2(a: [U256; 6], b: [U256; 2]) -> [U256; 6] {
+        fp6Validate([a[0], a[1], a[2], a[3], a[4], a[5]])
+        fp2Validate([b[0], b[1]])
+        // Three independent Karatsuba products share the canonical b0+b1 sum.
+        let sumB = addModN!(b[0], b[1], fpModulus)
+        let t0RealProduct = mulModN!(a[0], b[0], fpModulus)
+        let t0ImaginaryProduct = mulModN!(a[1], b[1], fpModulus)
+        let t0SumProduct = mulModN!(addModN!(a[0], a[1], fpModulus), sumB, fpModulus)
+        let t1RealProduct = mulModN!(a[2], b[0], fpModulus)
+        let t1ImaginaryProduct = mulModN!(a[3], b[1], fpModulus)
+        let t1SumProduct = mulModN!(addModN!(a[2], a[3], fpModulus), sumB, fpModulus)
+        let t2RealProduct = mulModN!(a[4], b[0], fpModulus)
+        let t2ImaginaryProduct = mulModN!(a[5], b[1], fpModulus)
+        let t2SumProduct = mulModN!(addModN!(a[4], a[5], fpModulus), sumB, fpModulus)
+        // Native closure makes all six results canonical without revalidation.
+        return [
+            addModN!(t0RealProduct, fpModulus - t0ImaginaryProduct, fpModulus),
+            addModN!(t0SumProduct,
+                fpModulus - addModN!(t0RealProduct, t0ImaginaryProduct, fpModulus), fpModulus),
+            addModN!(t1RealProduct, fpModulus - t1ImaginaryProduct, fpModulus),
+            addModN!(t1SumProduct,
+                fpModulus - addModN!(t1RealProduct, t1ImaginaryProduct, fpModulus), fpModulus),
+            addModN!(t2RealProduct, fpModulus - t2ImaginaryProduct, fpModulus),
+            addModN!(t2SumProduct,
+                fpModulus - addModN!(t2RealProduct, t2ImaginaryProduct, fpModulus), fpModulus)
+        ]
+    }
+
+    // e6.go MulBy01: multiply by (c0,c1,0), reached by the ordinary MillerLoop.
+    fn fp6Mul01(a: [U256; 6], c0: [U256; 2], c1: [U256; 2]) -> [U256; 6] {
+        fp6Validate([a[0], a[1], a[2], a[3], a[4], a[5]])
+        fp2Validate([c0[0], c0[1]])
+        fp2Validate([c1[0], c1[1]])
+        // Five three-multiply Fp2 products; every native result is canonical.
+        let t0RealProduct = mulModN!(a[0], c0[0], fpModulus)
+        let t0ImaginaryProduct = mulModN!(a[1], c0[1], fpModulus)
+        let t0SumProduct = mulModN!(addModN!(a[0], a[1], fpModulus),
+            addModN!(c0[0], c0[1], fpModulus), fpModulus)
+        let t0Real = addModN!(t0RealProduct, fpModulus - t0ImaginaryProduct, fpModulus)
+        let t0Imaginary = addModN!(t0SumProduct,
+            fpModulus - addModN!(t0RealProduct, t0ImaginaryProduct, fpModulus), fpModulus)
+        let t1RealProduct = mulModN!(a[2], c1[0], fpModulus)
+        let t1ImaginaryProduct = mulModN!(a[3], c1[1], fpModulus)
+        let t1SumProduct = mulModN!(addModN!(a[2], a[3], fpModulus),
+            addModN!(c1[0], c1[1], fpModulus), fpModulus)
+        let t1Real = addModN!(t1RealProduct, fpModulus - t1ImaginaryProduct, fpModulus)
+        let t1Imaginary = addModN!(t1SumProduct,
+            fpModulus - addModN!(t1RealProduct, t1ImaginaryProduct, fpModulus), fpModulus)
+
+        // c1*(A1+A2)-t1 = A2*c1; avoid the cancelled outer terms.
+        let outer12RealProduct = mulModN!(a[4], c1[0], fpModulus)
+        let outer12ImaginaryProduct = mulModN!(a[5], c1[1], fpModulus)
+        let outer12SumProduct = mulModN!(addModN!(a[4], a[5], fpModulus),
+            addModN!(c1[0], c1[1], fpModulus), fpModulus)
+        let outer12Real = addModN!(outer12RealProduct, fpModulus - outer12ImaginaryProduct, fpModulus)
+        let outer12Imaginary = addModN!(outer12SumProduct,
+            fpModulus - addModN!(outer12RealProduct, outer12ImaginaryProduct, fpModulus), fpModulus)
+
+        // Cross01 = (A0+A1)*(c0+c1)-t0-t1.
+        let sumA01Real = addModN!(a[0], a[2], fpModulus)
+        let sumA01Imaginary = addModN!(a[1], a[3], fpModulus)
+        let sumC01Real = addModN!(c0[0], c1[0], fpModulus)
+        let sumC01Imaginary = addModN!(c0[1], c1[1], fpModulus)
+        let product01Real = mulModN!(sumA01Real, sumC01Real, fpModulus)
+        let product01Imaginary = mulModN!(sumA01Imaginary, sumC01Imaginary, fpModulus)
+        let product01Sum = mulModN!(addModN!(sumA01Real, sumA01Imaginary, fpModulus),
+            addModN!(sumC01Real, sumC01Imaginary, fpModulus), fpModulus)
+        let reduced01Real = addModN!(product01Real, fpModulus - addModN!(
+            product01Imaginary, addModN!(t0Real, t1Real, fpModulus), fpModulus), fpModulus)
+        let reduced01Imaginary = addModN!(product01Sum, fpModulus - addModN!(
+            addModN!(product01Real, product01Imaginary, fpModulus),
+            addModN!(t0Imaginary, t1Imaginary, fpModulus), fpModulus), fpModulus)
+
+        // c0*(A0+A2)-t0 = A2*c0.
+        let outer02RealProduct = mulModN!(a[4], c0[0], fpModulus)
+        let outer02ImaginaryProduct = mulModN!(a[5], c0[1], fpModulus)
+        let outer02SumProduct = mulModN!(addModN!(a[4], a[5], fpModulus),
+            addModN!(c0[0], c0[1], fpModulus), fpModulus)
+        let outer02Real = addModN!(outer02RealProduct, fpModulus - outer02ImaginaryProduct, fpModulus)
+        let outer02Imaginary = addModN!(outer02SumProduct,
+            fpModulus - addModN!(outer02RealProduct, outer02ImaginaryProduct, fpModulus), fpModulus)
+
+        // Output (t0+xi*Outer12, Cross01, Outer02+t1), xi=9+u.
+        return [
+            addModN!(t0Real, addModN!(mulModN!(outer12Real, 9, fpModulus),
+                fpModulus - outer12Imaginary, fpModulus), fpModulus),
+            addModN!(t0Imaginary, addModN!(outer12Real,
+                mulModN!(outer12Imaginary, 9, fpModulus), fpModulus), fpModulus),
+            reduced01Real, reduced01Imaginary,
+            addModN!(outer02Real, t1Real, fpModulus),
+            addModN!(outer02Imaginary, t1Imaginary, fpModulus)
+        ]
+    }
+}
