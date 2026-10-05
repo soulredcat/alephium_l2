@@ -68,7 +68,10 @@ async fn request(State(state): State<RpcState>, headers: HeaderMap, body: Bytes)
     if !json_content(&headers) {
         return StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response();
     }
-    Json(respond(state, &body).await).into_response()
+    match respond(state, &body).await {
+        Some(response) => Json(response).into_response(),
+        None => StatusCode::NO_CONTENT.into_response(),
+    }
 }
 
 fn json_content(headers: &HeaderMap) -> bool {
@@ -85,40 +88,58 @@ fn json_content(headers: &HeaderMap) -> bool {
 
 /// JSON-RPC 2.0 single or batch request. Batch members run in order and each
 /// keeps the single-request bounds; malformed JSON is a -32700 response.
-async fn respond(state: RpcState, body: &[u8]) -> Value {
+async fn respond(state: RpcState, body: &[u8]) -> Option<Value> {
     let Ok(input) = serde_json::from_slice::<Value>(body) else {
-        return error(Value::Null, -32700, "Parse error");
+        return Some(error(Value::Null, -32700, "Parse error"));
     };
     let Value::Array(calls) = input else {
-        return single(state, input).await;
+        return single(state, input, false).await;
     };
     if calls.is_empty() || calls.len() > MAX_BATCH {
-        return error(Value::Null, -32600, "Invalid request");
+        return Some(error(Value::Null, -32600, "Invalid request"));
     }
     let mut responses = Vec::with_capacity(calls.len());
     let mut bytes = 0usize;
     for call in calls {
-        let response = if bytes > MAX_BATCH_RESPONSE_BYTES {
-            let id = call.get("id").cloned().unwrap_or(Value::Null);
-            error(id, -32000, "Batch response exceeds bound")
-        } else {
-            single(state.clone(), call).await
+        let Some(response) = single(state.clone(), call, bytes > MAX_BATCH_RESPONSE_BYTES).await
+        else {
+            continue;
         };
         bytes = bytes.saturating_add(serde_json::to_vec(&response).map_or(0, |bytes| bytes.len()));
         responses.push(response);
     }
-    Value::Array(responses)
+    (!responses.is_empty()).then_some(Value::Array(responses))
 }
 
-async fn single(state: RpcState, input: Value) -> Value {
-    let id = input.get("id").cloned().unwrap_or(Value::Null);
+async fn single(state: RpcState, input: Value, response_limit_reached: bool) -> Option<Value> {
+    let id = input.get("id").cloned();
+    let valid_id = id
+        .as_ref()
+        .is_none_or(|id| id.is_null() || id.is_string() || id.is_number());
     if !input.is_object()
         || input.get("jsonrpc").and_then(Value::as_str) != Some("2.0")
-        || !(id.is_null() || id.is_string() || id.is_number())
+        || input.get("method").and_then(Value::as_str).is_none()
+        || input
+            .get("params")
+            .is_some_and(|params| !params.is_array() && !params.is_object())
+        || !valid_id
     {
-        return error(id, -32600, "Invalid request");
+        let id = if valid_id {
+            id.unwrap_or(Value::Null)
+        } else {
+            Value::Null
+        };
+        return Some(error(id, -32600, "Invalid request"));
     }
-    match dispatch(state, input).await {
+    // Notifications still execute, including after the response budget is used;
+    // they never contribute a response. MAX_BATCH bounds their work count too.
+    let result = if response_limit_reached && id.is_some() {
+        Err(RpcError::from("Batch response exceeds bound".to_string()))
+    } else {
+        dispatch(state, input).await
+    };
+    let id = id?;
+    Some(match result {
         Ok(value) => json!({"jsonrpc":"2.0","id":id,"result":value}),
         Err(failure) => {
             let mut response = error(id, failure.code, &failure.message);
@@ -127,7 +148,7 @@ async fn single(state: RpcState, input: Value) -> Value {
             }
             response
         }
-    }
+    })
 }
 
 #[derive(Debug)]
