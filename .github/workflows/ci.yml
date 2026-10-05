@@ -80,6 +80,7 @@ jobs:
         run: |
           cargo fmt --all --check
           cargo clippy -p alephium-l2-transition-core -p alephium-l2-transition-prover --all-targets --locked -- -D warnings
+          cargo test -p alephium-l2-transition-prover --locked
       # Native producer exports, as in docs/HANDOFF.md; no guest build or proving.
       - name: Export runtime transition fixtures
         run: |
