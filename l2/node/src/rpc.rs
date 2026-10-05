@@ -10,7 +10,10 @@ use tokio::sync::Semaphore;
 
 mod block;
 mod call;
+#[cfg(test)]
+mod compat_tests;
 mod estimate;
+mod fee_history;
 mod logs;
 mod read;
 mod receipt;

@@ -7,6 +7,11 @@ use crate::{
     protocol::{BLOCK_BYTES, BlockInfo},
     storage::ReadView,
 };
+use alloy_consensus::{
+    EMPTY_OMMER_ROOT_HASH, Eip658Value, Receipt, ReceiptEnvelope, TxEnvelope,
+    proofs::{calculate_receipt_root, calculate_transaction_root},
+};
+use alloy_primitives::{B256, Bloom, Log};
 use serde_json::{Value, json};
 use std::sync::Arc;
 
@@ -21,6 +26,47 @@ pub(super) fn height(value: &Value, view: &ReadView) -> Result<u64, RpcError> {
                 .map_err(|_| "Block number exceeds supported range".into())
         }
     }
+}
+
+/// Ethereum transaction/receipt trie roots and bloom derived from the stored
+/// envelopes and receipts. They are not authenticated by L1 settlement.
+fn derived_roots(view: &ReadView, block: &BlockInfo) -> Result<(B256, B256, Bloom), RpcError> {
+    let mut envelopes = Vec::with_capacity(block.transactions.len());
+    let mut receipts = Vec::with_capacity(block.transactions.len());
+    let mut bloom = Bloom::ZERO;
+    for hash in &block.transactions {
+        let envelope = transaction::envelope(view, *hash)?
+            .ok_or_else(|| storage_error("missing block transaction".into()))?;
+        let stored = view
+            .receipt(*hash)
+            .map_err(storage_error)?
+            .ok_or_else(|| storage_error("missing block receipt".into()))?;
+        if stored.block_height != block.head.height || stored.block_hash != block.head.commit_id {
+            return Err(storage_error("receipt differs from committed block".into()));
+        }
+        let logs = stored
+            .logs
+            .iter()
+            .map(|log| Log::new_unchecked(log.address, log.topics.clone(), log.data.clone().into()))
+            .collect();
+        let receipt = Receipt {
+            status: Eip658Value::Eip658(stored.success),
+            cumulative_gas_used: stored.cumulative_gas,
+            logs,
+        }
+        .with_bloom();
+        bloom.accrue_bloom(&receipt.logs_bloom);
+        receipts.push(match envelope {
+            TxEnvelope::Legacy(_) => ReceiptEnvelope::Legacy(receipt),
+            _ => ReceiptEnvelope::Eip1559(receipt),
+        });
+        envelopes.push(envelope);
+    }
+    Ok((
+        calculate_transaction_root(&envelopes),
+        calculate_receipt_root(&receipts),
+        bloom,
+    ))
 }
 
 fn encode(view: &ReadView, block: &BlockInfo, full: bool) -> Result<Value, RpcError> {
@@ -46,8 +92,11 @@ fn encode(view: &ReadView, block: &BlockInfo, full: bool) -> Result<Value, RpcEr
         }
         transactions.push(value);
     }
+    let (transactions_root, receipts_root, logs_bloom) = derived_roots(view, block)?;
     // These SHA-256 local commit identities are not Ethereum RLP header hashes.
-    // Unsupported authenticated roots are explicit null values.
+    // Standard clients require every header field. There is no Ethereum state
+    // trie, so stateRoot is zero; miner and mixHash are the profile's zero
+    // beneficiary and PREVRANDAO. l2Commitment names the actual commitment.
     let result = json!({
         "hash":block.head.commit_id,"parentHash":block.parent.commit_id,
         "number":format!("0x{:x}",block.head.height),
@@ -56,7 +105,10 @@ fn encode(view: &ReadView, block: &BlockInfo, full: bool) -> Result<Value, RpcEr
         "gasUsed":format!("0x{:x}",block.gas_used),
         "size":format!("0x{:x}",block.encoded_bytes),
         "baseFeePerGas":"0x0","transactions":transactions,"uncles":[],
-        "stateRoot":null,"transactionsRoot":null,"receiptsRoot":null,
+        "sha3Uncles":EMPTY_OMMER_ROOT_HASH,"miner":alloy_primitives::Address::ZERO,
+        "stateRoot":B256::ZERO,"transactionsRoot":transactions_root,"receiptsRoot":receipts_root,
+        "logsBloom":logs_bloom,"difficulty":"0x0","extraData":"0x",
+        "mixHash":B256::ZERO,"nonce":"0x0000000000000000",
         "l2Commitment":"local-sha256-v1"
     });
     if serde_json::to_vec(&result)
