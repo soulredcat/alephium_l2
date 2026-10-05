@@ -1,0 +1,14 @@
+[package]
+name = "alephium-l2-sdk"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+alloy-consensus = { version = "=2.5.0", features = ["k256"] }
+alloy-eips = "=2.5.0"
+alloy-primitives = { version = "=1.6.0", features = ["serde"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "=0.12.28", default-features = false, features = ["blocking", "json"] }
+hex = "0.4"

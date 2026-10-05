@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "upstream_repository": "https://github.com/ethereum/legacytests",
+  "upstream_revision": "1f581b8ccdc4c63acf5f2c5c1b155c690c32a8eb",
+  "upstream_path": "Cancun/BlockchainTests/GeneralStateTests/stExample/add11.json",
+  "selected_case": "add11_d0g0v0_Cancun",
+  "fixture_sha256": "e9ded3a32bbe6880b061bdd809fd6db7b0d91d510932811fd402742366f480b0",
+  "license": "MIT",
+  "license_sha256": "e05e7a352de9b076e634d3631c7b0bca95a45ee9b4270cfa57cb83916c67ff9e",
+  "filler_source": "src/GeneralStateTestsFiller/stExample/add11Filler.json",
+  "filler_source_hash": "6eee0dd911abc3a40e8292b7321a9679fa65cdbb4bcf591ad86e0b02faae49d3",
+  "filling_client": "evm version 1.14.0-unstable-d8e0807d-20240306",
+  "filling_tool": "retesteth-0.3.2-cancun+commit.a599ee61.Linux.g++",
+  "extraction": "Copy add11.json and LICENSE byte-for-byte from the pinned upstream paths; parse only add11_d0g0v0_Cancun at test time.",
+  "selection": "One unchanged official fixture, one Cancun case, one block, one signed legacy transaction, four allocated accounts.",
+  "coverage": "New-runtime Changes::absorb and CacheDB overlay commit; complete balance/nonce/code/nonzero-storage allocation, transaction gas, empty logs, successful ADD execution and EIP-4788 effects.",
+  "boundary": "Test-only Ethereum chain 1/unprotected envelope/full header/preallocation; development chain 424243 admission rejects this envelope. Production engine/ViewDatabase/Store/RPC/recovery and Ethereum trie/header consensus are not covered."
+}

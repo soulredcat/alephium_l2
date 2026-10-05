@@ -1,0 +1,122 @@
+{
+  "schema": 1,
+  "risc0_revision": "365e7b2db4f620fa256580c27558d2623362b9ae",
+  "openzeppelin_revision": "acd4ff74de833399287ed6b31b4debf6b2b35527",
+  "files": [
+    {
+      "path": "vendor/contracts/src/groth16/RiscZeroGroth16Verifier.sol",
+      "source_key": "contracts/src/groth16/RiscZeroGroth16Verifier.sol",
+      "origin": "https://raw.githubusercontent.com/risc0/risc0-ethereum/365e7b2db4f620fa256580c27558d2623362b9ae/contracts/src/groth16/RiscZeroGroth16Verifier.sol",
+      "git_blob_sha1": "6c4282f52945ebf0e4e972d18759649349cd1f2d",
+      "sha256": "f24784fb625b8a82232c79f21db28f759593e29a287a4f9865cc6e78d36eb283",
+      "bytes": 8236,
+      "license": "GPL-3.0",
+      "compile": true
+    },
+    {
+      "path": "vendor/contracts/src/groth16/Groth16Verifier.sol",
+      "source_key": "contracts/src/groth16/Groth16Verifier.sol",
+      "origin": "https://raw.githubusercontent.com/risc0/risc0-ethereum/365e7b2db4f620fa256580c27558d2623362b9ae/contracts/src/groth16/Groth16Verifier.sol",
+      "git_blob_sha1": "0023123c5cfa70c21db1a103a7bd811b889a4211",
+      "sha256": "14bdf78c8b6168b12a5235395d42b8daabb48ee29d49913bb06d20071f156fd6",
+      "bytes": 8436,
+      "license": "GPL-3.0",
+      "compile": true
+    },
+    {
+      "path": "vendor/contracts/src/groth16/ControlID.sol",
+      "source_key": "contracts/src/groth16/ControlID.sol",
+      "origin": "https://raw.githubusercontent.com/risc0/risc0-ethereum/365e7b2db4f620fa256580c27558d2623362b9ae/contracts/src/groth16/ControlID.sol",
+      "git_blob_sha1": "022efda6f04561dbe5f4fd243c3e4c15aa9dc883",
+      "sha256": "753535e844a84a28b275fe21bd4c30022266b27bcdaa9b189220dece220accfa",
+      "bytes": 1076,
+      "license": "Apache-2.0",
+      "compile": true
+    },
+    {
+      "path": "vendor/contracts/src/IRiscZeroVerifier.sol",
+      "source_key": "contracts/src/IRiscZeroVerifier.sol",
+      "origin": "https://raw.githubusercontent.com/risc0/risc0-ethereum/365e7b2db4f620fa256580c27558d2623362b9ae/contracts/src/IRiscZeroVerifier.sol",
+      "git_blob_sha1": "aad9646d8f0d3e80458224ec4860878d9ace9991",
+      "sha256": "cfd7c80872313134d028c0250ddc86036448fb4df290ce4dba113ea80646e180",
+      "bytes": 9572,
+      "license": "Apache-2.0",
+      "compile": true
+    },
+    {
+      "path": "vendor/contracts/src/IRiscZeroSelectable.sol",
+      "source_key": "contracts/src/IRiscZeroSelectable.sol",
+      "origin": "https://raw.githubusercontent.com/risc0/risc0-ethereum/365e7b2db4f620fa256580c27558d2623362b9ae/contracts/src/IRiscZeroSelectable.sol",
+      "git_blob_sha1": "476db17381e454f1a8854b44af11039ce567af95",
+      "sha256": "54a8a39dd427e8ec21db31815d80a3df6df992d3244a2370ba21517dde7dd11b",
+      "bytes": 1671,
+      "license": "Apache-2.0",
+      "compile": true
+    },
+    {
+      "path": "vendor/contracts/src/StructHash.sol",
+      "source_key": "contracts/src/StructHash.sol",
+      "origin": "https://raw.githubusercontent.com/risc0/risc0-ethereum/365e7b2db4f620fa256580c27558d2623362b9ae/contracts/src/StructHash.sol",
+      "git_blob_sha1": "6ac5417d45b49c9e353becc4d19d2884cf063e13",
+      "sha256": "9fd507fc30726dcecf35a7a1d16b2ffe34561721fa37895bb75b9c3cf07f0131",
+      "bytes": 3162,
+      "license": "Apache-2.0",
+      "compile": true
+    },
+    {
+      "path": "vendor/contracts/src/Util.sol",
+      "source_key": "contracts/src/Util.sol",
+      "origin": "https://raw.githubusercontent.com/risc0/risc0-ethereum/365e7b2db4f620fa256580c27558d2623362b9ae/contracts/src/Util.sol",
+      "git_blob_sha1": "46e772b93f8bfd14dd31bc5753ed3883ab994710",
+      "sha256": "4711aa3c42754c996278f62091ffd1422132512e0900a9cdea3fe54235fa5896",
+      "bytes": 2835,
+      "license": "Apache-2.0",
+      "compile": true
+    },
+    {
+      "path": "vendor/contracts/test/TestReceiptV3_0.sol",
+      "source_key": "contracts/test/TestReceiptV3_0.sol",
+      "origin": "https://raw.githubusercontent.com/risc0/risc0-ethereum/365e7b2db4f620fa256580c27558d2623362b9ae/contracts/test/TestReceiptV3_0.sol",
+      "git_blob_sha1": "1a670c1159eaabade8ab3a124d7101e70b1fc7e8",
+      "sha256": "552f7885ba6aefec3fd2f8d8e56017cf97481455da6bb76ed0798e1a67cacabb",
+      "bytes": 1635,
+      "license": "Apache-2.0",
+      "compile": false
+    },
+    {
+      "path": "vendor/openzeppelin/contracts/utils/math/SafeCast.sol",
+      "source_key": "openzeppelin/contracts/utils/math/SafeCast.sol",
+      "origin": "https://raw.githubusercontent.com/OpenZeppelin/openzeppelin-contracts/acd4ff74de833399287ed6b31b4debf6b2b35527/contracts/utils/math/SafeCast.sol",
+      "git_blob_sha1": "b345ede1e6994a12d8ca5ba4b6e87401952cb116",
+      "sha256": "9769274bf53f26a7c7896c526ea1980dc9bea5bf5c2a5fd04870008c4afc1de9",
+      "bytes": 34943,
+      "license": "MIT",
+      "compile": true
+    },
+    {
+      "path": "LICENSE-APACHE-2.0",
+      "origin": "https://raw.githubusercontent.com/risc0/risc0-ethereum/365e7b2db4f620fa256580c27558d2623362b9ae/LICENSE",
+      "sha256": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594",
+      "bytes": 10174,
+      "license": "Apache-2.0",
+      "compile": false
+    },
+    {
+      "path": "LICENSE-MIT-OPENZEPPELIN",
+      "origin": "https://raw.githubusercontent.com/OpenZeppelin/openzeppelin-contracts/acd4ff74de833399287ed6b31b4debf6b2b35527/LICENSE",
+      "sha256": "8b3fddff3cff904ab9bd7c48a9288fb08ab4f47b179c07af6df7886b12cb04d6",
+      "bytes": 1090,
+      "license": "MIT",
+      "compile": false
+    },
+    {
+      "path": "LICENSE-GPL-3.0",
+      "origin": "https://www.gnu.org/licenses/gpl-3.0.txt",
+      "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
+      "bytes": 35149,
+      "license": "GPL-3.0",
+      "compile": false
+    }
+  ],
+  "extraction": "Unchanged pinned source closure and historical receipt; original copyright/license headers retained; Git blob SHA-1 and SHA-256 checked."
+}

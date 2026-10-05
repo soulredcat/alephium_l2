@@ -1,0 +1,10 @@
+[workspace]
+resolver = "3"
+members = ["l2/node", "l2/sdk"]
+
+[workspace.package]
+edition = "2024"
+publish = false
+
+[profile.release]
+overflow-checks = true

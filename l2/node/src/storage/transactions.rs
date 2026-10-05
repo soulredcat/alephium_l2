@@ -1,0 +1,251 @@
+use super::{
+    Store,
+    block::{self, StoredChange},
+    encoding::{Decoder, Encoder, key, slot_key},
+    records,
+};
+use crate::protocol::{
+    Account, BlockCommit, MAX_PENDING, MAX_TRANSACTION_BYTES, Pending, TransactionStatus,
+};
+use alloy_primitives::{B256, keccak256};
+use fjall::Readable;
+use std::collections::{BTreeMap, BTreeSet};
+
+impl Store {
+    pub fn pending(&self) -> Result<Vec<Pending>, String> {
+        Ok(self
+            .pending_records()?
+            .into_iter()
+            .map(|(_, pending)| pending)
+            .collect())
+    }
+
+    fn pending_records(&self) -> Result<Vec<(u64, Pending)>, String> {
+        let view = self.view()?;
+        let mut pending = Vec::new();
+        let mut hashes = BTreeSet::new();
+        let mut senders = BTreeSet::new();
+        for item in view.snapshot.prefix(&view.items, [0x23]) {
+            let (key, value) = item.into_inner().map_err(super::engine_error)?;
+            if key.len() != 9 || pending.len() >= MAX_PENDING {
+                return Err("invalid durable pending queue".into());
+            }
+            let ordinal = u64::from_be_bytes(key[1..].try_into().unwrap());
+            let mut input = Decoder::new(&value)?;
+            let hash = input.hash()?;
+            let sender = input.address()?;
+            input.finish()?;
+            if ordinal == 0 || !hashes.insert(hash) || !senders.insert(sender) {
+                return Err("duplicate durable pending identity".into());
+            }
+            let raw = view
+                .raw_transaction(hash)?
+                .ok_or("missing pending envelope")?;
+            let status = view.status(hash)?.ok_or("missing pending status")?;
+            if status.status != "durably_accepted" {
+                return Err("pending status is not accepted".into());
+            }
+            pending.push((ordinal, Pending { hash, sender, raw }));
+        }
+        Ok(pending)
+    }
+
+    pub fn admit(&mut self, pending: Pending) -> Result<TransactionStatus, String> {
+        self.check()?;
+        if pending.raw.is_empty()
+            || pending.raw.len() > MAX_TRANSACTION_BYTES
+            || keccak256(&pending.raw) != pending.hash
+        {
+            return Err("invalid pending transaction identity or size".into());
+        }
+        let view = self.view()?;
+        if let Some(existing) = view.status(pending.hash)? {
+            if view.raw_transaction(pending.hash)?.as_deref() != Some(pending.raw.as_slice()) {
+                return Err("conflicting canonical transaction identity".into());
+            }
+            return Ok(existing);
+        }
+        let queue = self.pending_records()?;
+        if queue.len() >= MAX_PENDING || queue.iter().any(|(_, item)| item.sender == pending.sender)
+        {
+            return Err("pending capacity or sender reservation exceeded".into());
+        }
+        let counter = view.get([0x03])?.ok_or("missing pending ordinal")?;
+        if counter.len() != 8 {
+            return Err("malformed pending ordinal".into());
+        }
+        let ordinal = u64::from_be_bytes(counter.try_into().unwrap())
+            .checked_add(1)
+            .ok_or("pending ordinal exhausted")?;
+        let mut record = Encoder::default();
+        record.hash(pending.hash);
+        record.address(pending.sender);
+        let status = TransactionStatus {
+            hash: pending.hash,
+            status: "durably_accepted".into(),
+            block_height: None,
+            error: None,
+        };
+        let mut batch = self.batch()?;
+        batch.insert(&self.items, key(0x20, pending.hash.as_slice()), pending.raw);
+        batch.insert(
+            &self.items,
+            key(0x21, pending.hash.as_slice()),
+            records::encode_status(&status)?,
+        );
+        batch.insert(&self.items, key(0x23, &ordinal.to_be_bytes()), record.0);
+        batch.insert(&self.items, vec![0x03], ordinal.to_be_bytes().to_vec());
+        self.finish(batch)?;
+        Ok(status)
+    }
+
+    pub fn commit(&mut self, mut commit: BlockCommit) -> Result<super::ReadView, String> {
+        self.check()?;
+        if self.latest_head()? != commit.parent {
+            return Err("commit parent is stale".into());
+        }
+        block::validate(&commit)?;
+        let view = self.view()?;
+        let pending: BTreeMap<_, _> = self
+            .pending_records()?
+            .into_iter()
+            .map(|(order, pending)| (pending.hash, (order, pending)))
+            .collect();
+        for hash in commit
+            .transactions
+            .iter()
+            .chain(commit.rejected.iter().map(|(hash, _)| hash))
+        {
+            if !pending.contains_key(hash) {
+                return Err("block resolves an unknown pending intent".into());
+            }
+        }
+        for receipt in &commit.receipts {
+            if pending[&receipt.hash].1.sender != receipt.from {
+                return Err("receipt sender differs from durable intent".into());
+            }
+        }
+        block::logical_bytes(
+            &commit,
+            commit
+                .transactions
+                .iter()
+                .map(|hash| pending[hash].1.raw.as_slice()),
+        )?;
+        commit.changes.sort_by_key(|change| change.address);
+        let new_codes: BTreeMap<_, _> = commit
+            .changes
+            .iter()
+            .filter_map(|change| change.code.as_ref().map(|code| (change.code_hash, code)))
+            .collect();
+        for (hash, code) in &new_codes {
+            records::verify_code(*hash, code)?;
+        }
+        let mut changes = Vec::with_capacity(commit.changes.len());
+        for mut change in commit.changes.iter().cloned() {
+            change.slots.sort_by_key(|(slot, _)| *slot);
+            let mut epoch = view
+                .account_record(change.address)?
+                .map_or(0, |(account, _)| account.storage_epoch);
+            if change.storage_reset || change.deleted {
+                epoch = epoch.checked_add(1).ok_or("storage epoch exhausted")?;
+            }
+            if let Some(code) = &change.code {
+                records::verify_code(change.code_hash, code)?;
+            } else if !change.deleted && !new_codes.contains_key(&change.code_hash) {
+                view.code(change.code_hash)?;
+            }
+            if change.deleted {
+                change.balance = Default::default();
+                change.nonce = 0;
+                change.code_hash = B256::ZERO;
+            }
+            changes.push(StoredChange { change, epoch });
+        }
+        let (head, record) = block::encode(&commit, &changes)?;
+        let mut batch = self.batch()?;
+        for stored in &changes {
+            let change = &stored.change;
+            let account = Account {
+                balance: change.balance,
+                nonce: change.nonce,
+                code_hash: change.code_hash,
+                storage_epoch: stored.epoch,
+            };
+            batch.insert(
+                &self.items,
+                key(0x10, change.address.as_slice()),
+                records::encode_account(&account, change.deleted),
+            );
+            if let Some(code) = &change.code {
+                let code_key = key(0x12, change.code_hash.as_slice());
+                if let Some(existing) = view.get(&code_key)? {
+                    if existing != *code {
+                        return Err("conflicting content-addressed code".into());
+                    }
+                } else if !code.is_empty() {
+                    batch.insert(&self.items, code_key, code.clone());
+                }
+            }
+            for (slot, value) in &change.slots {
+                let slot_key = slot_key(change.address, stored.epoch, *slot);
+                if value.is_zero() {
+                    batch.remove(&self.items, slot_key);
+                } else {
+                    batch.insert(&self.items, slot_key, value.to_be_bytes::<32>().to_vec());
+                }
+            }
+        }
+        for mut receipt in commit.receipts {
+            receipt.block_hash = head.commit_id;
+            let status = TransactionStatus {
+                hash: receipt.hash,
+                status: if receipt.success {
+                    "committed"
+                } else {
+                    "reverted"
+                }
+                .into(),
+                block_height: Some(head.height),
+                error: None,
+            };
+            batch.insert(
+                &self.items,
+                key(0x22, receipt.hash.as_slice()),
+                records::encode_receipt(&receipt, true)?,
+            );
+            batch.insert(
+                &self.items,
+                key(0x21, receipt.hash.as_slice()),
+                records::encode_status(&status)?,
+            );
+            batch.remove(
+                &self.items,
+                key(0x23, &pending[&receipt.hash].0.to_be_bytes()),
+            );
+        }
+        for (hash, reason) in commit.rejected {
+            let status = TransactionStatus {
+                hash,
+                status: "rejected".into(),
+                block_height: Some(head.height),
+                error: Some(reason),
+            };
+            batch.insert(
+                &self.items,
+                key(0x21, hash.as_slice()),
+                records::encode_status(&status)?,
+            );
+            batch.remove(&self.items, key(0x23, &pending[&hash].0.to_be_bytes()));
+        }
+        batch.insert(&self.items, key(0x30, &head.height.to_be_bytes()), record);
+        batch.insert(
+            &self.items,
+            key(0x31, head.commit_id.as_slice()),
+            head.height.to_be_bytes().to_vec(),
+        );
+        batch.insert(&self.items, vec![0x02], records::encode_head(&head));
+        self.finish(batch)?;
+        self.view()
+    }
+}

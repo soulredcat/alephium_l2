@@ -1,0 +1,3 @@
+* text=auto eol=lf
+# Hash-pinned fixtures and their source/license inventory must retain exact bytes.
+l2/node/fixtures/** -text
