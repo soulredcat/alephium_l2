@@ -1,9 +1,10 @@
-//! Execute the selected guest once and validate its actual Groth16 receipt.
+//! Execute the selected guest once and validate its actual Groth16 receipt,
+//! or execute it without proving as a bounded preflight.
 
 use crate::{HostResult, cli::LocalProver};
 use risc0_zkvm::{
-    Digest, ExecutorEnv, ExternalProver, InnerReceipt, Prover, ProverOpts, Receipt, SessionStats,
-    compute_image_id,
+    Digest, Executor, ExecutorEnv, ExitCode, ExternalProver, InnerReceipt, Prover, ProverOpts,
+    Receipt, SessionStats, compute_image_id,
 };
 
 pub const SESSION_LIMIT_CYCLES: u64 = 256 * 1024 * 1024;
@@ -20,6 +21,87 @@ pub struct VerifiedProof {
     pub prover_sha256: [u8; 32],
 }
 
+/// Non-sensitive outcome of an execution-only run of the pinned guest.
+pub struct Preflight {
+    pub user_cycles: u64,
+    pub segments: usize,
+}
+
+fn checked_image(program: &[u8], expected_image_id: [u8; 32]) -> HostResult<Digest> {
+    let image_id = compute_image_id(program)
+        .map_err(|_| "Cannot derive the guest image ID; a packaged ProgramBinary is required.")?;
+    if image_id.as_bytes() != expected_image_id {
+        return Err("Selected guest ProgramBinary differs from the expected image ID pin.");
+    }
+    Ok(image_id)
+}
+
+/// Proving and preflight share this exact framing and cycle ceiling.
+fn bounded_env(input: &[u8]) -> HostResult<ExecutorEnv<'_>> {
+    let input_length = u32::try_from(input.len())
+        .map_err(|_| "Private transition exceeds the framed input length limit.")?;
+    // The guest bounds this little-endian length before allocating its buffer.
+    // These are exact bytes, without the SDK Vec serializer's length encoding.
+    ExecutorEnv::builder()
+        .session_limit(Some(SESSION_LIMIT_CYCLES))
+        .write_slice(&input_length.to_le_bytes())
+        .write_slice(input)
+        .stdout(std::io::sink())
+        .stderr(std::io::sink())
+        .build()
+        .map_err(|_| "Cannot construct bounded private guest environment.")
+}
+
+/// Execute without proving through the same pinned local r0vm. Only a
+/// Halted(0) session whose journal equals the independently derived canonical
+/// journal passes. This checks resources before an expensive proof attempt.
+pub fn preflight(
+    local: &LocalProver,
+    input: &[u8],
+    program: &[u8],
+    expected_journal: &[u8],
+    expected_image_id: [u8; 32],
+) -> HostResult<Preflight> {
+    checked_image(program, expected_image_id)?;
+    let env = bounded_env(input)?;
+    let session = ExternalProver::new("ipc", &local.server_path)
+        .execute(env, program)
+        .map_err(
+            |_| "Execution-only preflight failed in the pinned executor; payload suppressed.",
+        )?;
+    let user_cycles = session.cycles();
+    check_session(
+        session.exit_code,
+        &session.journal.bytes,
+        user_cycles,
+        expected_journal,
+    )?;
+    Ok(Preflight {
+        user_cycles,
+        segments: session.segments.len(),
+    })
+}
+
+fn check_session(
+    exit_code: ExitCode,
+    journal: &[u8],
+    user_cycles: u64,
+    expected_journal: &[u8],
+) -> HostResult<()> {
+    if exit_code != ExitCode::Halted(0) {
+        return Err("Guest execution did not halt with exit code zero.");
+    }
+    if user_cycles > SESSION_LIMIT_CYCLES {
+        return Err("Guest execution exceeded the pinned session cycle ceiling.");
+    }
+    if journal != expected_journal {
+        return Err(
+            "Executed guest journal differs from the independently derived canonical journal.",
+        );
+    }
+    Ok(())
+}
+
 pub fn generate(
     local: &LocalProver,
     input: &[u8],
@@ -27,23 +109,8 @@ pub fn generate(
     expected_journal: &[u8],
     expected_image_id: [u8; 32],
 ) -> HostResult<VerifiedProof> {
-    let image_id = compute_image_id(program)
-        .map_err(|_| "Cannot derive the guest image ID; a packaged ProgramBinary is required.")?;
-    if image_id.as_bytes() != expected_image_id {
-        return Err("Selected guest ProgramBinary differs from the expected image ID pin.");
-    }
-    let input_length = u32::try_from(input.len())
-        .map_err(|_| "Private transition exceeds the framed input length limit.")?;
-    // The guest bounds this little-endian length before allocating its buffer.
-    // These are exact bytes, without the SDK Vec serializer's length encoding.
-    let env = ExecutorEnv::builder()
-        .session_limit(Some(SESSION_LIMIT_CYCLES))
-        .write_slice(&input_length.to_le_bytes())
-        .write_slice(input)
-        .stdout(std::io::sink())
-        .stderr(std::io::sink())
-        .build()
-        .map_err(|_| "Cannot construct bounded private guest environment.")?;
+    let image_id = checked_image(program, expected_image_id)?;
+    let env = bounded_env(input)?;
     let opts = ProverOpts::groth16().with_dev_mode(false);
     // Construct the prover with the validated path instead of SDK fallback
     // discovery. No remote service, network prover or development receipt is used.
@@ -85,4 +152,36 @@ pub fn generate(
         stats: result.stats,
         prover_sha256: local.server_sha256,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{SESSION_LIMIT_CYCLES, check_session};
+    use risc0_zkvm::ExitCode;
+
+    #[test]
+    fn preflight_accepts_only_a_successful_matching_bounded_session() {
+        let journal = b"canonical journal";
+        assert!(check_session(ExitCode::Halted(0), journal, 1, journal).is_ok());
+        assert!(check_session(ExitCode::Halted(0), journal, SESSION_LIMIT_CYCLES, journal).is_ok());
+        for exit_code in [
+            ExitCode::Halted(1),
+            ExitCode::Paused(0),
+            ExitCode::SystemSplit,
+            ExitCode::SessionLimit,
+        ] {
+            assert!(check_session(exit_code, journal, 1, journal).is_err());
+        }
+        assert!(
+            check_session(
+                ExitCode::Halted(0),
+                journal,
+                SESSION_LIMIT_CYCLES + 1,
+                journal
+            )
+            .is_err()
+        );
+        assert!(check_session(ExitCode::Halted(0), b"other journal", 1, journal).is_err());
+        assert!(check_session(ExitCode::Halted(0), b"", 1, journal).is_err());
+    }
 }

@@ -8,26 +8,39 @@ use std::{fs, io::Write, path::PathBuf};
 
 fn bundle(path: PathBuf) -> CheckpointTransitionBundle {
     let bytes = fs::read(path).expect("read retained private checkpoint input");
-    let ProofInput::Checkpoint(bundle) = decode_input(&bytes).expect("shared binary input decode") else {
+    let ProofInput::Checkpoint(bundle) = decode_input(&bytes).expect("shared binary input decode")
+    else {
         panic!("expected checkpoint witness");
     };
-    assert!(encode_checkpoint_transition(&bundle).unwrap() == bytes, "binary encoding drift");
+    assert!(
+        encode_checkpoint_transition(&bundle).unwrap() == bytes,
+        "binary encoding drift"
+    );
     bundle
 }
 
 #[test]
 fn actual_checkpoint_batches_chain_and_authenticate_hidden_state() {
-    let root = PathBuf::from(std::env::var_os("L2_CHECKPOINT_INPUT_ROOT")
-        .expect("set L2_CHECKPOINT_INPUT_ROOT to retained checkpoint export root"));
+    let root = PathBuf::from(
+        std::env::var_os("L2_CHECKPOINT_INPUT_ROOT")
+            .expect("set L2_CHECKPOINT_INPUT_ROOT to retained checkpoint export root"),
+    );
     let full = bundle(root.join("genesis-export/transition.bin"));
     let suffix = bundle(root.join("export/transition.bin"));
     let complete = prove_checkpoint_transition(&full).expect("genesis checkpoint replay disagrees");
-    let second = prove_checkpoint_transition(&suffix).expect("retained checkpoint replay disagrees");
+    let second =
+        prove_checkpoint_transition(&suffix).expect("retained checkpoint replay disagrees");
     assert_eq!(complete.journal.blocks, 4);
     assert_eq!(second.journal.blocks, 2);
     assert_eq!(second.journal.parent.height, 2);
-    assert_eq!(complete.journal.new_state_root, second.journal.new_state_root);
-    assert!(complete.checkpoint == second.checkpoint, "checkpoint continuation changes final state");
+    assert_eq!(
+        complete.journal.new_state_root,
+        second.journal.new_state_root
+    );
+    assert!(
+        complete.checkpoint == second.checkpoint,
+        "checkpoint continuation changes final state"
+    );
 
     let mut first = full.clone();
     first.blocks.truncate(2);
@@ -36,18 +49,34 @@ fn actual_checkpoint_batches_chain_and_authenticate_hidden_state() {
     let first = prove_checkpoint_transition(&first).unwrap();
     assert_eq!(first.journal.new_state_root, second.journal.old_state_root);
     assert_eq!(first.journal.head, second.journal.parent);
-    assert!(first.checkpoint == suffix.checkpoint, "guest/native boundary checkpoint differs");
-    let root_of = |checkpoint: &alephium_l2_transition_core::protocol::checkpoint::ExecutionCheckpoint| {
-        checkpoint.root(checkpoint_profile().unwrap(), suffix.domain.l1_network,
-            suffix.domain.l1_genesis_id, suffix.domain.settlement_contract_id)
-    };
+    assert!(
+        first.checkpoint == suffix.checkpoint,
+        "guest/native boundary checkpoint differs"
+    );
+    let root_of =
+        |checkpoint: &alephium_l2_transition_core::protocol::checkpoint::ExecutionCheckpoint| {
+            checkpoint.root(
+                checkpoint_profile().unwrap(),
+                suffix.domain.l1_network,
+                suffix.domain.l1_genesis_id,
+                suffix.domain.settlement_contract_id,
+            )
+        };
     let accepted = first.journal.new_state_root;
     let mut changed = suffix.checkpoint.clone();
     changed.accounts[0].storage_epoch += 1;
-    assert_ne!(root_of(&changed).unwrap(), accepted, "unbound storage epoch");
+    assert_ne!(
+        root_of(&changed).unwrap(),
+        accepted,
+        "unbound storage epoch"
+    );
     changed = suffix.checkpoint.clone();
     changed.block_hashes[1].hash = B256::from([0x55; 32]);
-    assert_ne!(root_of(&changed).unwrap(), accepted, "unbound BLOCKHASH history");
+    assert_ne!(
+        root_of(&changed).unwrap(),
+        accepted,
+        "unbound BLOCKHASH history"
+    );
     changed = suffix.checkpoint.clone();
     changed.block_hashes.remove(0);
     assert!(changed.validate().is_err());
@@ -68,7 +97,10 @@ fn actual_checkpoint_batches_chain_and_authenticate_hidden_state() {
     assert!(public_statement.get("checkpoint").is_none());
     assert_eq!(public_statement["schema"], 3);
     if let Some(path) = std::env::var_os("L2_CHECKPOINT_CORE_EVIDENCE") {
-        let mut output = fs::OpenOptions::new().write(true).create_new(true).open(path)
+        let mut output = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(path)
             .expect("new safe checkpoint evidence path");
         let evidence = serde_json::json!({
             "status":"passed", "scope":"native-runtime/portable-core-checkpoint-continuation",
@@ -77,7 +109,9 @@ fn actual_checkpoint_batches_chain_and_authenticate_hidden_state() {
             "epochs_and_blockhash_authenticated":true,
             "guest_receipt_generated_by_this_check":false, "settlement_verified":false,
         });
-        output.write_all(&serde_json::to_vec_pretty(&evidence).unwrap()).unwrap();
+        output
+            .write_all(&serde_json::to_vec_pretty(&evidence).unwrap())
+            .unwrap();
         output.sync_all().unwrap();
     }
 }

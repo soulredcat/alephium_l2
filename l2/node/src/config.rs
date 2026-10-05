@@ -13,6 +13,8 @@ pub struct Config {
     pub listen: SocketAddr,
     pub data_dir: PathBuf,
     pub genesis: Genesis,
+    /// Admission-only floor on the effective gas price; not a consensus rule.
+    pub min_gas_price: u128,
 }
 
 impl Config {
@@ -22,6 +24,7 @@ impl Config {
         let mut data_dir = PathBuf::from(".local/l2-next-development");
         let mut genesis_file = None;
         let mut chain_id = CHAIN_ID;
+        let mut min_gas_price = 0;
         let mut options = BTreeSet::new();
         while let Some(arg) = args.next() {
             if !options.insert(arg.clone()) {
@@ -35,6 +38,7 @@ impl Config {
                 "--data-dir" => data_dir = value.into(),
                 "--genesis" => genesis_file = Some(PathBuf::from(value)),
                 "--chain-id" => chain_id = parse_chain_id(&value)?,
+                "--min-gas-price" => min_gas_price = parse_gas_price(&value)?,
                 _ => return Err(format!("Unknown option: {arg}")),
             }
         }
@@ -50,8 +54,18 @@ impl Config {
             listen,
             data_dir,
             genesis,
+            min_gas_price,
         })
     }
+}
+
+pub fn parse_gas_price(value: &str) -> Result<u128, String> {
+    if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err("Minimum gas price must be a decimal wei amount".into());
+    }
+    value
+        .parse()
+        .map_err(|_| "Minimum gas price exceeds u128".into())
 }
 
 pub fn parse_chain_id(value: &str) -> Result<u64, String> {

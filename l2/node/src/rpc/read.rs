@@ -38,10 +38,6 @@ pub(super) fn dispatch(view: Arc<ReadView>, input: &Value) -> Result<Value, RpcE
             parameters(input, 0, 0)?;
             Ok(json!(view.chain_id().to_string()))
         }
-        "eth_gasPrice" | "eth_maxPriorityFeePerGas" => {
-            parameters(input, 0, 0)?;
-            Ok(json!("0x1"))
-        }
         "eth_getBalance"
         | "eth_getTransactionCount"
         | "l2_getBalance"
