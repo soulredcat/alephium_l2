@@ -98,15 +98,9 @@ impl ReadView {
             }
             return Ok(Some(block));
         }
-        // Every commit writes the index, so a chain whose first block is indexed
-        // has no unindexed records and an index miss is simply an unknown hash.
-        let Some(first) = self.block(1)? else {
-            return Ok(None);
-        };
-        if self
-            .get(key(0x31, first.head.commit_id.as_slice()))?
-            .is_some()
-        {
+        // Startup verified complete coverage, and each later atomic commit adds
+        // its index. Legacy/partial indexes still need the bounded fallback.
+        if self.block_index_complete {
             return Ok(None);
         }
         // Old records have no derived index. Bound lookup without changing their
@@ -161,8 +155,8 @@ mod tests {
     #[test]
     fn hash_lookup_uses_the_index_and_keeps_the_legacy_scan() {
         let directory = tempfile::tempdir().unwrap();
-        let mut store =
-            Store::open(&directory.path().join("data"), &development::genesis()).unwrap();
+        let path = directory.path().join("data");
+        let mut store = Store::open(&path, &development::genesis()).unwrap();
         let unknown = B256::repeat_byte(0x42);
         assert!(
             store
@@ -176,6 +170,7 @@ mod tests {
             commit(&mut store, nonce);
         }
         let view = store.view().unwrap();
+        assert!(view.block_index_complete);
         let hashes: Vec<_> = (0..=3)
             .map(|height| view.block(height).unwrap().unwrap().head.commit_id)
             .collect();
@@ -191,12 +186,47 @@ mod tests {
         };
         assert_eq!(found(&view), [Some(0), Some(1), Some(2), Some(3)]);
         assert!(view.block_by_hash(unknown).unwrap().is_none());
+        drop(view);
+        drop(store);
+        let mut store = Store::open_existing(&path, &development::genesis()).unwrap();
+        let indexed = store.view().unwrap();
+        assert!(indexed.block_index_complete);
+        assert_eq!(found(&indexed), [Some(0), Some(1), Some(2), Some(3)]);
+        assert!(indexed.block_by_hash(unknown).unwrap().is_none());
+        drop(indexed);
+
+        // An index for block 1 does not establish coverage of every later block.
+        // Recovery permits missing derived indexes, so preserve that lookup.
+        let mut batch = store.batch().unwrap();
+        batch.remove(&store.items, key(0x31, hashes[2].as_slice()));
+        store.finish(batch).unwrap();
+        drop(store);
+        let mut store = Store::open_existing(&path, &development::genesis()).unwrap();
+        let partial = store.view().unwrap();
+        assert!(!partial.block_index_complete);
+        assert_eq!(found(&partial), [Some(0), Some(1), Some(2), Some(3)]);
+        assert!(partial.block_by_hash(unknown).unwrap().is_none());
+        drop(partial);
+
         // A chain from before the derived index still resolves by bounded scan.
+        let mut batch = store.batch().unwrap();
         for hash in &hashes[1..] {
-            store.items.remove(key(0x31, hash.as_slice())).unwrap();
+            batch.remove(&store.items, key(0x31, hash.as_slice()));
         }
+        store.finish(batch).unwrap();
+        drop(store);
+        let mut store = Store::open_existing(&path, &development::genesis()).unwrap();
         let legacy = store.view().unwrap();
+        assert!(!legacy.block_index_complete);
         assert_eq!(found(&legacy), [Some(0), Some(1), Some(2), Some(3)]);
         assert!(legacy.block_by_hash(unknown).unwrap().is_none());
+        drop(legacy);
+        // New indexed commits must not hide the unindexed history behind them.
+        commit(&mut store, 3);
+        let mixed = store.view().unwrap();
+        assert!(!mixed.block_index_complete);
+        assert_eq!(found(&mixed), [Some(0), Some(1), Some(2), Some(3)]);
+        let head = mixed.head.commit_id;
+        assert_eq!(mixed.block_by_hash(head).unwrap().unwrap().head.height, 4);
     }
 }
