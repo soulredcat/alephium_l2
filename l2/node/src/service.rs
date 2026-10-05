@@ -16,6 +16,8 @@ use std::{
 };
 use tokio::sync::oneshot;
 
+mod production;
+
 enum Command {
     Submit(Vec<u8>, oneshot::Sender<Result<TransactionStatus, String>>),
     Stop,
@@ -28,6 +30,8 @@ pub struct NodeHandle {
     failure: Arc<RwLock<Option<String>>>,
     pending: Arc<AtomicUsize>,
     min_gas_price: u128,
+    checkpoint_bytes: Arc<AtomicUsize>,
+    checkpoint_limit: usize,
 }
 
 impl NodeHandle {
@@ -48,6 +52,14 @@ impl NodeHandle {
             .read()
             .map(|s| s.clone())
             .unwrap_or_else(|_| Some("Node lock failure".into()))
+    }
+
+    /// Encoded execution checkpoint size of the published head, and its bound.
+    pub fn checkpoint_capacity(&self) -> (usize, usize) {
+        (
+            self.checkpoint_bytes.load(Ordering::Relaxed),
+            self.checkpoint_limit,
+        )
     }
 
     pub fn pending_count(&self) -> usize {
@@ -113,6 +125,9 @@ impl Core {
         self.handle
             .pending
             .store(self.pending.len(), Ordering::Relaxed);
+        if let Some((bytes, _)) = self.store.checkpoint_capacity() {
+            self.handle.checkpoint_bytes.store(bytes, Ordering::Relaxed);
+        }
         Ok(())
     }
 
@@ -171,59 +186,25 @@ impl Core {
         }
     }
 
-    fn produce(&mut self) -> Result<(), String> {
-        if self.pending.is_empty() {
-            return Ok(());
-        }
-        let mut selected = Vec::new();
-        let mut reserved_gas = 0u64;
-        let mut bytes = 4096usize;
-        let view = self.handle.view()?;
-        for pending in &self.pending {
-            let info = execution::inspect_for_chain(&pending.raw, view.chain_id())?;
-            if reserved_gas.saturating_add(info.gas_limit) > BLOCK_GAS
-                || bytes.saturating_add(pending.raw.len() + 40) > BLOCK_BYTES
-            {
-                break;
-            }
-            reserved_gas += info.gas_limit;
-            bytes += pending.raw.len() + 40;
-            selected.push(pending.raw.clone());
-        }
-        if selected.is_empty() {
-            return Err("Persisted pending transaction cannot fit block".into());
-        }
-        let context = self.context()?;
-        let result = execution::execute_block((*view).clone(), &selected, context)?;
-        // A rejected intent changes no state and no receipt, but the transition
-        // witness cannot represent one, so a block containing it could never be
-        // proven. Commit only executed transactions and resolve rejections
-        // outside the chain. Either way every selected intent leaves the queue.
-        if !result.receipts.is_empty() {
-            self.store.commit(BlockCommit {
-                parent: self.head.clone(),
-                context,
-                transactions: result.receipts.iter().map(|r| r.hash).collect(),
-                changes: result.changes,
-                receipts: result.receipts,
-                rejected: Vec::new(),
-            })?;
-        }
-        for (hash, reason) in &result.rejected {
-            self.store.discard(*hash, reason)?;
-        }
-        self.pending.drain(..selected.len());
-        let new_view = self.store.view()?;
-        self.publish(new_view)
-    }
-
     fn fail(&self) {
         self.handle.mark_failed();
     }
 }
 
 pub fn start(config: &Config) -> Result<(NodeHandle, thread::JoinHandle<()>), String> {
-    let store = Store::open(&config.data_dir, &config.genesis)?;
+    let maximum = crate::operator::MAX_CONTINUATION_CHECKPOINT_BYTES;
+    if !(1..=maximum).contains(&config.max_checkpoint_bytes) {
+        return Err(format!(
+            "Checkpoint capacity must be from 1 to {maximum} bytes"
+        ));
+    }
+    let mut store = Store::open(&config.data_dir, &config.genesis)?;
+    // Every committed head may start a proven batch, so the producer keeps
+    // the encoded execution checkpoint within the continuation bound.
+    store.enable_capacity(config.max_checkpoint_bytes)?;
+    let (checkpoint_bytes, checkpoint_limit) = store
+        .checkpoint_capacity()
+        .ok_or("Checkpoint capacity tracking is unavailable")?;
     let view = store.view()?;
     let pending = store.pending()?;
     if pending.len() > MAX_PENDING {
@@ -248,6 +229,8 @@ pub fn start(config: &Config) -> Result<(NodeHandle, thread::JoinHandle<()>), St
         failure: Arc::new(RwLock::new(None)),
         pending: Arc::new(AtomicUsize::new(pending.len())),
         min_gas_price: config.min_gas_price,
+        checkpoint_bytes: Arc::new(AtomicUsize::new(checkpoint_bytes)),
+        checkpoint_limit,
     };
     let mut core = Core {
         store,
@@ -325,6 +308,7 @@ mod tests {
             data_dir: directory.path().join("data"),
             genesis: development::genesis(),
             min_gas_price: 2,
+            max_checkpoint_bytes: crate::operator::MAX_CONTINUATION_CHECKPOINT_BYTES,
         };
         let (node, worker) = start(&config).unwrap();
         let legacy = development::sign(

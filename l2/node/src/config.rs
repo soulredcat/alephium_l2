@@ -1,3 +1,4 @@
+use crate::operator::MAX_CONTINUATION_CHECKPOINT_BYTES;
 use crate::protocol::{CHAIN_ID, Genesis, validate_chain_id};
 use std::{
     collections::BTreeSet,
@@ -15,6 +16,10 @@ pub struct Config {
     pub genesis: Genesis,
     /// Admission-only floor on the effective gas price; not a consensus rule.
     pub min_gas_price: u128,
+    /// The producer refuses blocks whose resulting execution checkpoint would
+    /// exceed this including reserved hash-window growth; at most the
+    /// continuation transport bound.
+    pub max_checkpoint_bytes: usize,
 }
 
 impl Config {
@@ -25,6 +30,7 @@ impl Config {
         let mut genesis_file = None;
         let mut chain_id = CHAIN_ID;
         let mut min_gas_price = 0;
+        let mut max_checkpoint_bytes = MAX_CONTINUATION_CHECKPOINT_BYTES;
         let mut options = BTreeSet::new();
         while let Some(arg) = args.next() {
             if !options.insert(arg.clone()) {
@@ -39,6 +45,7 @@ impl Config {
                 "--genesis" => genesis_file = Some(PathBuf::from(value)),
                 "--chain-id" => chain_id = parse_chain_id(&value)?,
                 "--min-gas-price" => min_gas_price = parse_gas_price(&value)?,
+                "--max-checkpoint-bytes" => max_checkpoint_bytes = parse_checkpoint_bytes(&value)?,
                 _ => return Err(format!("Unknown option: {arg}")),
             }
         }
@@ -55,8 +62,24 @@ impl Config {
             data_dir,
             genesis,
             min_gas_price,
+            max_checkpoint_bytes,
         })
     }
+}
+
+pub fn parse_checkpoint_bytes(value: &str) -> Result<usize, String> {
+    value
+        .parse::<usize>()
+        .ok()
+        .filter(|bytes| {
+            value.bytes().all(|byte| byte.is_ascii_digit())
+                && (1..=MAX_CONTINUATION_CHECKPOINT_BYTES).contains(bytes)
+        })
+        .ok_or_else(|| {
+            format!(
+                "Checkpoint capacity must be a decimal byte count from 1 to {MAX_CONTINUATION_CHECKPOINT_BYTES}"
+            )
+        })
 }
 
 pub fn parse_gas_price(value: &str) -> Result<u128, String> {

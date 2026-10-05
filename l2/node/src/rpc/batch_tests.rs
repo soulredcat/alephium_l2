@@ -1,5 +1,5 @@
 use super::{MAX_BATCH, RpcState, json_content, request, respond, single, state};
-use crate::{config::Config, development, execution, service};
+use crate::{config::Config, development, execution, operator, service};
 use axum::{
     body::{Bytes, to_bytes},
     extract::State,
@@ -23,6 +23,7 @@ async fn batches_and_parse_errors_follow_json_rpc() {
         data_dir: directory.path().join("data"),
         genesis: development::genesis(),
         min_gas_price: 0,
+        max_checkpoint_bytes: operator::MAX_CONTINUATION_CHECKPOINT_BYTES,
     };
     let (node, worker) = service::start(&config).unwrap();
     let rpc = state(node.clone());

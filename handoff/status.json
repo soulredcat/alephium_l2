@@ -91,7 +91,7 @@
   ],
   "current_code": {
     "latest_proof_core_and_guest_validation": "Native runtime/core batch, ecrecover and schema3 checkpoint agreement passed on fresh execution-schema-2 fixtures in PR #6 CI; guest compile/execute/proof pending",
-    "producer_resource_and_exit_headroom": "unqualified; enforce before mainnet",
+    "producer_resource_and_exit_headroom": "Producer enforces the configured checkpoint byte bound plus remaining block-hash-window growth; actual guest cost and recovery/exit headroom remain unqualified",
     "completed_current_transition_receipt": false,
     "checkpoint_schema": 3,
     "interrupted_attempt": "Stopped by operator; no accepted receipt or resumable proof claim",
@@ -101,7 +101,8 @@
     "complete_input_bytes": 16777216,
     "checkpoint_wire": "ALEPHIUM-L2/TRANSITION/WIRE/V3",
     "execution_storage_schema": 2,
-    "legacy_storage_policy": "Schema-1 databases/backups rejected before engine open; original binaries/data retained; no migration"
+    "legacy_storage_policy": "Schema-1 databases/backups rejected before engine open; original binaries/data retained; no migration",
+    "local_discard_policy": "Execution/capacity rejections resolve durably outside blocks; replay and all export schemas account for them; these unproven outcomes cannot satisfy P6 forced inputs"
   },
   "pins": {
     "guest_session_limit_cycles": 268435456,
@@ -150,7 +151,7 @@
     "handoff_merge_is_feature_or_mainnet_acceptance": false
   },
   "pr_review_20261005": {
-    "scope": "Sequential review and necessary fixes for PR #2-#11, not mainnet acceptance",
+    "scope": "Sequential review and necessary fixes for PR #2-#13, not mainnet acceptance",
     "native_agreement_run": "https://github.com/soulredcat/alephium_l2/actions/runs/37327778488",
     "preflight_host_checks_run": "https://github.com/soulredcat/alephium_l2/actions/runs/37327844723",
     "local_checks": [
@@ -158,7 +159,9 @@
       "Execution profile identity, legacy refusal, restart and replay",
       "SDK identity, durable transfer, restart and ambiguous response",
       "JSON-RPC mixed/all notifications and compatibility parsing",
-      "Complete/partial/legacy block-hash indexes and durable failure/reopen"
+      "Complete/partial/legacy block-hash indexes and durable failure/reopen",
+      "Discard/restart/replay and all-schema export accounting; core fixture includes an off-chain discard",
+      "Checkpoint byte accounting, future history reserve, no-write refusal and multi-sender fallback"
     ],
     "wsl_or_prover_started": false,
     "existing_nodes_replaced": false,

@@ -19,6 +19,7 @@ fn resolve(data: &Path, genesis: &Genesis) -> service::NodeHandle {
         data_dir: data.to_path_buf(),
         genesis: genesis.clone(),
         min_gas_price: 0,
+        max_checkpoint_bytes: operator::MAX_CONTINUATION_CHECKPOINT_BYTES,
     };
     let runtime = tokio::runtime::Runtime::new().unwrap();
     let (node, worker) = service::start(&config).unwrap();
