@@ -22,6 +22,7 @@ async fn batches_and_parse_errors_follow_json_rpc() {
         listen: "127.0.0.1:0".parse().unwrap(),
         data_dir: directory.path().join("data"),
         genesis: development::genesis(),
+        min_gas_price: 0,
     };
     let (node, worker) = service::start(&config).unwrap();
     let rpc = state(node.clone());
@@ -33,10 +34,10 @@ async fn batches_and_parse_errors_follow_json_rpc() {
         -32600
     );
 
-    let single = send(&rpc, &call(json!(7), "eth_chainId").to_string()).await;
-    assert_eq!(single["id"], 7);
+    let single_response = send(&rpc, &call(json!(7), "eth_chainId").to_string()).await;
+    assert_eq!(single_response["id"], 7);
     assert_eq!(
-        single["result"],
+        single_response["result"],
         format!("0x{:x}", development::genesis().chain_id)
     );
 
@@ -51,7 +52,7 @@ async fn batches_and_parse_errors_follow_json_rpc() {
     let responses = responses.as_array().unwrap();
     assert_eq!(responses.len(), 5);
     assert_eq!(responses[0]["id"], 1);
-    assert_eq!(responses[0]["result"], single["result"]);
+    assert_eq!(responses[0]["result"], single_response["result"]);
     assert_eq!(responses[1]["id"], "b");
     assert_eq!(responses[1]["result"], "0x0");
     assert_eq!(responses[2]["error"]["code"], -32600);
