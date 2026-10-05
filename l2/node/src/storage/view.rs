@@ -20,6 +20,8 @@ use std::{
 pub struct ReadView {
     pub head: Head,
     pub(super) chain_id: u64,
+    // Recovery verified every index at open; each later atomic commit adds one.
+    pub(super) block_index_complete: bool,
     pub(super) snapshot: Snapshot,
     pub(super) items: Keyspace,
     pub(super) terminal: Arc<AtomicBool>,

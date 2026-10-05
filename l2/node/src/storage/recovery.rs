@@ -10,7 +10,12 @@ use std::collections::{BTreeMap, BTreeSet};
 
 /// Rebuild expected incremental records from retained, hash-checked local commits.
 /// This is startup consistency verification, not proof of EVM/L1 validity.
-pub(super) fn validate(view: &ReadView, genesis: &Genesis, identity: &[u8]) -> Result<(), String> {
+/// Returns whether the optional hash index covers the complete retained chain.
+pub(super) fn validate(
+    view: &ReadView,
+    genesis: &Genesis,
+    identity: &[u8],
+) -> Result<bool, String> {
     let mut expected = BTreeMap::<Vec<u8>, Vec<u8>>::new();
     for funded in &genesis.accounts {
         if funded.balance.is_zero() {
@@ -189,6 +194,7 @@ pub(super) fn validate(view: &ReadView, genesis: &Genesis, identity: &[u8]) -> R
     }
     // Derived C3 indexes are optional for older commits, but every present
     // index must identify a hash-checked member of the retained canonical chain.
+    let mut indexed_blocks = 0usize;
     for entry in view.snapshot.prefix(&view.items, [0x31]) {
         let (key, value) = entry.into_inner().map_err(super::engine_error)?;
         if key.len() != 33 || value.len() != 8 {
@@ -204,6 +210,7 @@ pub(super) fn validate(view: &ReadView, genesis: &Genesis, identity: &[u8]) -> R
         if block_hashes.get(&hash) != Some(&height) {
             return Err("Block hash index differs from retained chain".into());
         }
+        indexed_blocks += 1;
     }
     for entry in view.snapshot.iter(&view.items) {
         let key = entry.key().map_err(super::engine_error)?;
@@ -214,7 +221,7 @@ pub(super) fn validate(view: &ReadView, genesis: &Genesis, identity: &[u8]) -> R
             return Err("unknown authoritative key namespace".into());
         }
     }
-    Ok(())
+    Ok(indexed_blocks == block_hashes.len())
 }
 
 fn read_raw(view: &ReadView, hash: B256) -> Result<Vec<u8>, String> {
