@@ -1,13 +1,18 @@
 use crate::{protocol::*, service::NodeHandle};
 use axum::{
     Json, Router,
+    body::Bytes,
     extract::{DefaultBodyLimit, State},
+    http::{HeaderMap, StatusCode, header::CONTENT_TYPE},
+    response::{IntoResponse, Response},
     routing::{get, post},
 };
 use serde_json::{Value, json};
 use std::sync::Arc;
 use tokio::sync::Semaphore;
 
+#[cfg(test)]
+mod batch_tests;
 mod block;
 mod call;
 mod estimate;
@@ -23,16 +28,25 @@ struct RpcState {
     simulations: Arc<Semaphore>,
 }
 
+/// Common client libraries batch by default (ethers v6 up to 100 calls).
+const MAX_BATCH: usize = 100;
+/// Later batch members fail once responses exceed this; one member is <= BLOCK_BYTES.
+const MAX_BATCH_RESPONSE_BYTES: usize = 4 * BLOCK_BYTES;
+
 pub fn router(node: NodeHandle) -> Router {
     Router::new()
         .route("/health", get(health))
         .route("/", post(request))
         .layer(DefaultBodyLimit::max(BLOCK_BYTES))
-        .with_state(RpcState {
-            node,
-            reads: Arc::new(Semaphore::new(32)),
-            simulations: Arc::new(Semaphore::new(4)),
-        })
+        .with_state(state(node))
+}
+
+fn state(node: NodeHandle) -> RpcState {
+    RpcState {
+        node,
+        reads: Arc::new(Semaphore::new(32)),
+        simulations: Arc::new(Semaphore::new(4)),
+    }
 }
 
 async fn health(State(state): State<RpcState>) -> Json<Value> {
@@ -49,16 +63,62 @@ async fn health(State(state): State<RpcState>) -> Json<Value> {
     )
 }
 
-async fn request(State(state): State<RpcState>, Json(input): Json<Value>) -> Json<Value> {
+async fn request(State(state): State<RpcState>, headers: HeaderMap, body: Bytes) -> Response {
+    // Same media types the previous JSON extractor accepted.
+    if !json_content(&headers) {
+        return StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response();
+    }
+    Json(respond(state, &body).await).into_response()
+}
+
+fn json_content(headers: &HeaderMap) -> bool {
+    headers
+        .get(CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split(';').next())
+        .map(|mime| mime.trim().to_ascii_lowercase())
+        .is_some_and(|mime| {
+            mime == "application/json"
+                || mime.starts_with("application/") && mime.ends_with("+json")
+        })
+}
+
+/// JSON-RPC 2.0 single or batch request. Batch members run in order and each
+/// keeps the single-request bounds; malformed JSON is a -32700 response.
+async fn respond(state: RpcState, body: &[u8]) -> Value {
+    let Ok(input) = serde_json::from_slice::<Value>(body) else {
+        return error(Value::Null, -32700, "Parse error");
+    };
+    let Value::Array(calls) = input else {
+        return single(state, input).await;
+    };
+    if calls.is_empty() || calls.len() > MAX_BATCH {
+        return error(Value::Null, -32600, "Invalid request");
+    }
+    let mut responses = Vec::with_capacity(calls.len());
+    let mut bytes = 0usize;
+    for call in calls {
+        let response = if bytes > MAX_BATCH_RESPONSE_BYTES {
+            let id = call.get("id").cloned().unwrap_or(Value::Null);
+            error(id, -32000, "Batch response exceeds bound")
+        } else {
+            single(state.clone(), call).await
+        };
+        bytes = bytes.saturating_add(serde_json::to_vec(&response).map_or(0, |bytes| bytes.len()));
+        responses.push(response);
+    }
+    Value::Array(responses)
+}
+
+async fn single(state: RpcState, input: Value) -> Value {
     let id = input.get("id").cloned().unwrap_or(Value::Null);
     if !input.is_object()
         || input.get("jsonrpc").and_then(Value::as_str) != Some("2.0")
         || !(id.is_null() || id.is_string() || id.is_number())
     {
-        return Json(error(id, -32600, "Invalid request"));
+        return error(id, -32600, "Invalid request");
     }
-    let result = dispatch(state, input).await;
-    Json(match result {
+    match dispatch(state, input).await {
         Ok(value) => json!({"jsonrpc":"2.0","id":id,"result":value}),
         Err(failure) => {
             let mut response = error(id, failure.code, &failure.message);
@@ -67,7 +127,7 @@ async fn request(State(state): State<RpcState>, Json(input): Json<Value>) -> Jso
             }
             response
         }
-    })
+    }
 }
 
 #[derive(Debug)]
