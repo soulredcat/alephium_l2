@@ -6,8 +6,13 @@
 #[path = "../../../node/src/operator/transition_types.rs"]
 mod input;
 use input as transition_types;
-#[path = "../../../node/src/protocol.rs"]
-pub mod protocol;
+// An inline module sets the directory, so `protocol.rs` loads as an ordinary
+// file and its own submodules resolve under `node/src/protocol/`.
+#[path = "../../../node/src"]
+mod node_source {
+    pub mod protocol;
+}
+pub use node_source::protocol;
 #[path = "../../../node/src/operator/transition_wire.rs"]
 mod transition_wire;
 
@@ -19,7 +24,7 @@ mod block;
 #[path = "../../../node/src/execution/changes.rs"]
 mod changes;
 use protocol::encoding;
-#[allow(dead_code)]
+#[allow(dead_code, unused_imports)]
 #[path = "../../../node/src/storage/records.rs"]
 mod records;
 #[allow(dead_code)]
