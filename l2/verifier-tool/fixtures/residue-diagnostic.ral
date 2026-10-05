@@ -1,0 +1,55 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright 2024 RISC Zero, Inc. (inherited receipt wrapper/key semantics).
+// Original GPL wrapper and Apache receipt encoding notices are retained in
+// receipt_claims.ral and verification_key.ral; inherited arithmetic retains
+// its separate Apache-2.0 provenance. This composition is supplied without
+// warranty under GNU GPL version 3 or, optionally, any later version.
+// https://www.gnu.org/licenses/gpl-3.0.html
+//
+// Development-only front-stage gas diagnostics, never receipt acceptance.
+// All three stages perform the unchanged complete receipt admission first.
+// Stage 0 returns four admitted pairs in consecutive six-word layouts:
+// G1(x,y), G2(x.real,x.imag,y.real,y.imag), including the original -A.
+// Stage 1 decodes only the first twelve auxiliary root-inverse cells, calls
+// the unchanged general Fp12 inverse, and pads its twelve outputs with zero.
+// Stage 2 additionally calls the unchanged integrated Miller helper, returning
+// its raw seeded product f * rootInverse^(6*u+2), followed by twelve zeros.
+// The auxiliary retains the full v1 577-byte envelope even at stage 0.
+// No witness Frobenius factors, correction, final identity or acceptance result.
+
+Contract Risc0ResidueDiagnostics(fpModulus: U256) extends Risc0ReceiptClaims(fpModulus),
+    Bn254ResidueMiller(fpModulus) {
+    const RESIDUE_INVALID_LENGTH = 1430
+    const RESIDUE_INVALID_VERSION = 1431
+    const DIAGNOSTIC_INVALID_STAGE = 1490
+
+    pub fn probe(seal: ByteVec, imageId: ByteVec, journalDigest: ByteVec,
+        auxiliary: ByteVec, stage: U256) -> [U256; 24] {
+        fpCheckParameters()
+        assert!(size!(auxiliary) == 577, RESIDUE_INVALID_LENGTH)
+        assert!(byteVecSlice!(auxiliary, 0, 1) == #01, RESIDUE_INVALID_VERSION)
+        let pairs = receiptPairs(seal, imageId, journalDigest)
+        assert!(stage < 3, DIAGNOSTIC_INVALID_STAGE)
+        if (stage == 0) {
+            return pairs
+        } else {
+            let mut rootInverse = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+            for (let mut i = 0; i < 12; i = i + 1) {
+                let offset = 1 + 32 * i
+                rootInverse[i] = u256From32Byte!(byteVecSlice!(auxiliary, offset, offset + 32))
+            }
+            // fp12Inv validates all twelve original coefficients and rejects
+            // zero before executing the existing general inversion formula.
+            let root = fp12Inv(rootInverse)
+            let mut result = root
+            if (stage == 2) {
+                // Complete receipt admission and canonical/nonzero inversion
+                // establish the existing private helper's preconditions.
+                result = residueMillerAdmitted4(pairs, rootInverse, root)
+            }
+            return [result[0], result[1], result[2], result[3], result[4], result[5],
+                result[6], result[7], result[8], result[9], result[10], result[11],
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        }
+    }
+}

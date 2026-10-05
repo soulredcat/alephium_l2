@@ -1,0 +1,154 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2020 ConsenSys AG (ordinary Gnark Crypto Miller reference).
+// Licensed under the Apache License, Version 2.0; retained text in this directory.
+// Ordinary homogeneous lines/schedule retain miller_engine.ral provenance:
+// Gnark Crypto 703a260c2f991d01e245adf53d20f76af4210c5f, ecc/bn254/pairing.go.
+// Integrated residue check adapted from Gnark cfc7b2f907cc4212ec152077e022c6d0b4805759,
+// std/algebra/emulated/sw_bn254/pairing.go PairingCheck/millerLoopLines.
+// https://github.com/Consensys/gnark/blob/cfc7b2f907cc4212ec152077e022c6d0b4805759/std/algebra/emulated/sw_bn254/pairing.go
+// Section 4 of https://eprint.iacr.org/2024/640 supplies the residue equivalence.
+// Tower layout is [C0.B0.A0,C0.B0.A1,C0.B1.A0,C0.B1.A1,C0.B2.A0,C0.B2.A1,
+// C1.B0.A0,C1.B0.A1,C1.B1.A0,C1.B1.A1,C1.B2.A0,C1.B2.A1].
+// The correction has six canonical C0 words; C1 is structurally zero (Fp6).
+// This private composition confers no point admission or settlement authority.
+
+Abstract Contract Bn254ResidueMiller(fpModulus: U256) extends Bn254MillerCore(fpModulus),
+    Bn254Frobenius(fpModulus), Risc0FixedPair(fpModulus) {
+    const RESIDUE_ZERO_ROOT_INVERSE = 1432
+    const RESIDUE_PAIRING_FAILED = 1404
+
+    // PRECONDITION: caller checks exact modulus and complete pair admission,
+    // including Q when P is infinity, before reaching this private method.
+    // The caller's original proof/key/claim checks are not replaced by a witness.
+    // Check f * rootInverse^lambda * correction = 1, lambda=6*u+2+p^3-p^2+p.
+    // rootInverse is untrusted: validate every word and derive its inverse here.
+    fn pairingResidue4(pairs: [U256; 24], rootInverse: [U256; 12], correction: [U256; 6]) -> [U256; 12] {
+        // Keep all four logical operands: slot 1 is the exact source-certified
+        // alpha/beta contribution, multiplied after the other raw contributions.
+        fp12Validate(rootInverse)
+        fp6Validate([correction[0], correction[1], correction[2],
+            correction[3], correction[4], correction[5]])
+        let mut nonzero = false
+        for (let mut i = 0; i < 12; i = i + 1) {
+            nonzero = nonzero || rootInverse[i] != 0
+        }
+        assert!(nonzero, RESIDUE_ZERO_ROOT_INVERSE)
+        let root = fp12Inv(rootInverse)
+        let mut result = residueMillerAdmitted4(pairs, rootInverse, root)
+        // The loop contributes t=6*u+2; append p^3-p^2+p using general field maps.
+        result = fp12Mul(result, fp12Frobenius(rootInverse, 3))
+        result = fp12Mul(result, fp12Frobenius(root, 2))
+        result = fp12Mul(result, fp12Frobenius(rootInverse, 1))
+        let embeddedCorrection = [correction[0], correction[1], correction[2],
+            correction[3], correction[4], correction[5], 0, 0, 0, 0, 0, 0]
+        result = fp12Mul(result, embeddedCorrection)
+        let mut isOne = result[0] == 1
+        for (let mut i = 1; i < 12; i = i + 1) {
+            isOne = isOne && result[i] == 0
+        }
+        assert!(isOne, RESIDUE_PAIRING_FAILED)
+        return [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    }
+
+    // Separate ordinary-Miller frame keeps field temporaries bounded. Receipt
+    // and diagnostic callers establish pair admission and derive root on target.
+    // Pairs have the same caller-established admission as millerLoopAdmitted4.
+    // No host Miller result, caller admission flag or precomputed line is accepted.
+    fn residueMillerAdmitted4(pairs: [U256; 24], rootInverse: [U256; 12], root: [U256; 12]) -> [U256; 12] {
+        fixedPairGuard(pairs)
+        let mut active = [false, false, false, false]
+        let mut points = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        for (let mut k = 0; k < 4; k = k + 1) {
+            let offset = 6 * k
+            let pInfinity = pairs[offset] == 0 && pairs[offset + 1] == 0
+            let qInfinity = pairs[offset + 2] == 0 && pairs[offset + 3] == 0
+                && pairs[offset + 4] == 0 && pairs[offset + 5] == 0
+            active[k] = !pInfinity && !qInfinity && k != 1
+            if (active[k]) {
+                points[offset] = pairs[offset + 2]
+                points[offset + 1] = pairs[offset + 3]
+                points[offset + 2] = pairs[offset + 4]
+                points[offset + 3] = pairs[offset + 5]
+                points[offset + 4] = 1
+            }
+        }
+        // Signed leading digit 65 is +1. At i=64 square the arbitrary root,
+        // then multiply every ordinary 034 line without overwriting the root.
+        let mut result = rootInverse
+        result = fp12Square(result)
+        for (let mut k = 0; k < 4; k = k + 1) {
+            if (active[k]) {
+                let offset = 6 * k
+                let step = mDouble([points[offset], points[offset + 1], points[offset + 2],
+                    points[offset + 3], points[offset + 4], points[offset + 5]])
+                for (let mut component = 0; component < 6; component = component + 1) {
+                    points[offset + component] = step[component]
+                }
+                let line = mEvaluate([step[6], step[7], step[8], step[9], step[10], step[11]],
+                    [pairs[offset], pairs[offset + 1]])
+                result = fp12MulBy034(result, [line[0], line[1]], [line[2], line[3]], [line[4], line[5]])
+            }
+        }
+        // i=63 is -1: shared square and target-derived root before unchanged
+        // line(2Q,-Q)/addMixed(2Q,Q). All-infinity inputs still run root powers.
+        result = fp12Square(result)
+        result = fp12Mul(result, root)
+        for (let mut k = 0; k < 4; k = k + 1) {
+            if (active[k]) {
+                let offset = 6 * k
+                let combined = mSpecial63(result,
+                    [points[offset], points[offset + 1], points[offset + 2], points[offset + 3], points[offset + 4], points[offset + 5]],
+                    [pairs[offset + 2], pairs[offset + 3], pairs[offset + 4], pairs[offset + 5]], [pairs[offset], pairs[offset + 1]])
+                for (let mut component = 0; component < 6; component = component + 1) {
+                    points[offset + component] = combined[component]
+                }
+                for (let mut component = 0; component < 12; component = component + 1) {
+                    result[component] = combined[component + 6]
+                }
+            }
+        }
+        // Exact inherited signed masks: i=62 down to i=0, inclusive. Use the
+        // general square for untrusted roots, never the cyclotomic-only square.
+        for (let mut remaining = 63; remaining > 0; remaining = remaining - 1) {
+            let index = remaining - 1
+            let digit = ((MILLER_POSITIVE_DIGITS >> index) & 1) + 2 * ((MILLER_NEGATIVE_DIGITS >> index) & 1)
+            result = fp12Square(result)
+            if (digit == 1) {
+                result = fp12Mul(result, rootInverse)
+            } else if (digit == 2) {
+                result = fp12Mul(result, root)
+            } else {
+                // A zero signed digit retains only the general square.
+            }
+            for (let mut k = 0; k < 4; k = k + 1) {
+                if (active[k]) {
+                    let offset = 6 * k
+                    let combined = mAdvance(result,
+                        [points[offset], points[offset + 1], points[offset + 2], points[offset + 3], points[offset + 4], points[offset + 5]],
+                        [pairs[offset + 2], pairs[offset + 3], pairs[offset + 4], pairs[offset + 5]], [pairs[offset], pairs[offset + 1]], digit)
+                    for (let mut component = 0; component < 6; component = component + 1) {
+                        points[offset + component] = combined[component]
+                    }
+                    for (let mut component = 0; component < 12; component = component + 1) {
+                        result[component] = combined[component + 6]
+                    }
+                }
+            }
+        }
+        // Preserve each pair's exact homogeneous Frobenius line correction
+        // and its line-to-Q2, line-to-Q1 product order before witness factors.
+        for (let mut k = 0; k < 4; k = k + 1) {
+            if (active[k]) {
+                let offset = 6 * k
+                result = mCorrect(result,
+                    [points[offset], points[offset + 1], points[offset + 2], points[offset + 3], points[offset + 4], points[offset + 5]],
+                    [pairs[offset + 2], pairs[offset + 3], pairs[offset + 4], pairs[offset + 5]], [pairs[offset], pairs[offset + 1]])
+            }
+        }
+        // Ordinary Miller multiplication factors exactly by pair. Insert the
+        // complete fixed raw factor here, after shared squaring and corrections;
+        // inserting it at initialization would exponentiate it a second time.
+        return fp12Mul(result, fixedPairFactor())
+    }
+}

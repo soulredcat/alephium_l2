@@ -1,0 +1,132 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright 2024 RISC Zero, Inc. (canonical receipt verifier wrapper).
+//
+// The RiscZeroGroth16Verifier is free software: you can redistribute it
+// and/or modify it under the terms of the GNU General Public License as
+// published by the Free Software Foundation, either version 3 of the License,
+// or (at your option) any later version. It is distributed WITHOUT ANY
+// WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+// FOR A PARTICULAR PURPOSE. See <https://www.gnu.org/licenses/>.
+//
+// ReceiptClaim/Output, digest splitting and control constants below retain
+// their separate Apache-2.0 provenance: Copyright 2024-2025 RISC Zero, Inc.
+// Licensed under the Apache License, Version 2.0; you may not use those parts
+// except in compliance with the License: https://www.apache.org/licenses/LICENSE-2.0
+// Unless required by applicable law or agreed to in writing, those parts are
+// distributed on an AS IS BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND.
+// See the License for the specific permissions and limitations.
+//
+// Canonical RISC Zero Ethereum revision 365e7b2db4f620fa256580c27558d2623362b9ae:
+// contracts/src/groth16/RiscZeroGroth16Verifier.sol (GPL-3.0 wrapper),
+// contracts/src/IRiscZeroVerifier.sol, Util.sol and groth16/ControlID.sol
+// (Apache-2.0 success claim, endian mapping and circuit constants).
+// This target admits only an unconditional Halted(0) claim with zero input.
+// Proof transport is strictly selector4 || eight original BE U256 words.
+
+Abstract Contract Risc0ReceiptClaims(fpModulus: U256) extends Risc0VerificationKey(fpModulus) {
+    // Public receipt errors: exact input lengths, selector and pairing failure.
+    const RECEIPT_INVALID_LENGTH = 1400
+    const RECEIPT_SELECTOR_MISMATCH = 1401
+
+    const RECEIPT_ZERO_DIGEST = #0000000000000000000000000000000000000000000000000000000000000000
+    const RECEIPT_SYSTEM_STATE_ZERO = #a3acc27117418996340b84e5a90f3ef4c49d22c79e44aad822ec9c313e1eb8e2
+    // SHA256 of the exact ASCII type tags, verified against the pinned source.
+    const RECEIPT_OUTPUT_TAG = #77eafeb366a78b47747de0d7bb176284085ff5564887009a5be63da32d3559d4
+    const RECEIPT_CLAIM_TAG = #cb1fefcd1f2d9a64975cbbbf6e161e2914434b0cbb9960b84df5d717e86b48af
+    const RECEIPT_CONTROL_ROOT = #a54dc85ac99f851c92d7c96d7318af41dbe7c0194edfcc37eb4d422a998c1f56
+    // The fifth circuit signal uses the source's numeric BE control ID.
+    const RECEIPT_BN254_CONTROL_ID = 1930158958971974673407180959543112854198801264531668442085542093806106933952
+    // IC0 + controlRoot[0] * IC1 + controlRoot[1] * IC2 + controlId * IC5.
+    // Independently derived and admitted by the exact-source host certificate.
+    const RECEIPT_MSM_BASE_X = 19800549617043526326846376175457052460566676660635031068523672290036772915039
+    const RECEIPT_MSM_BASE_Y = 13609617621636367883330353808674297847335895297216177459356271594485454870057
+
+    // First four bytes of the exact canonical parameter tagged hash:
+    // SHA256(SHA256("risc0.Groth16ReceiptVerifierParameters") || controlRoot
+    //   || reverse32(BN254_CONTROL_ID) || verifierKeyDigest || #0300).
+    // verifierKeyDigest = 21c5fdd9b4d576b17581f50b755482ba7a2134a3b5186e8e454acfa1f69511ab;
+    // parameter digest = 73c457ba541936f0d907daf0c7253a39a9c5c427c225ba7709e44702d3c6eedc.
+    // The unconditional host certificate independently derives this selector,
+    // validates every fixed VK point and binds the exact compiled source closure.
+    // No caller flag, selectable key, mutable cache or alternate control is used.
+    const RECEIPT_SELECTOR = #73c457ba
+
+    // A fixed 16-byte BE conversion followed by byte reversal implements the
+    // canonical wrapper's first/second half LE signals without U256 reduction.
+    // Precondition: digest has 32 bytes and offset is internally fixed at 0/16.
+    fn receiptDigestHalfLE(digest: ByteVec, offset: U256) -> U256 {
+        let mut source = u256From16Byte!(byteVecSlice!(digest, offset, offset + 16))
+        let mut result = 0
+        for (let mut i = 0; i < 16; i = i + 1) {
+            result = (result << 8) | (source & 255)
+            source = source >> 8
+        }
+        return result
+    }
+
+    // Construct both Merkle-struct hashes on target; journalDigest is already
+    // SHA256(journal bytes). The zero system-state digest is not zero32.
+    // Preimage lengths are respectively 98 and 170 bytes, with LE down counts.
+    fn receiptOkClaimDigest(imageId: ByteVec, journalDigest: ByteVec) -> ByteVec {
+        let outputDigest = sha256!(RECEIPT_OUTPUT_TAG ++ journalDigest ++ RECEIPT_ZERO_DIGEST ++ #0200)
+        return sha256!(RECEIPT_CLAIM_TAG ++ RECEIPT_ZERO_DIGEST ++ imageId
+            ++ RECEIPT_SYSTEM_STATE_ZERO ++ outputDigest ++ #00000000 ++ #00000000 ++ #0400)
+    }
+
+    // Strict seal decoding preserves all original coordinates before admission.
+    // Solidity ABI B is imaginary-first: words 2,3,4,5 map to 3,2,5,4 internally.
+    fn receiptDecodeProof(seal: ByteVec) -> [U256; 8] {
+        let mut proof = [0, 0, 0, 0, 0, 0, 0, 0]
+        for (let mut i = 0; i < 8; i = i + 1) {
+            let offset = 4 + 32 * i
+            proof[i] = u256From32Byte!(byteVecSlice!(seal, offset, offset + 32))
+        }
+        return proof
+    }
+
+    // Only the claim's two signals vary; normalize once, preserving infinity.
+    fn receiptClaimMsm(claim0: U256, claim1: U256) -> [U256; 2] {
+        let mut result = g1FromAffine([RECEIPT_MSM_BASE_X, RECEIPT_MSM_BASE_Y])
+        result = g1JacAdd(result, g1Mul([VK_IC3_X, VK_IC3_Y], claim0))
+        result = g1JacAdd(result, g1Mul([VK_IC4_X, VK_IC4_Y], claim1))
+        return g1ToAffine(result)
+    }
+
+    fn receiptPairs(seal: ByteVec, imageId: ByteVec, journalDigest: ByteVec) -> [U256; 24] {
+        assert!(size!(seal) == 260 && size!(imageId) == 32 && size!(journalDigest) == 32,
+            RECEIPT_INVALID_LENGTH)
+        assert!(byteVecSlice!(seal, 0, 4) == RECEIPT_SELECTOR, RECEIPT_SELECTOR_MISMATCH)
+
+        let proof = receiptDecodeProof(seal)
+        let a = [proof[0], proof[1]]
+        let b = [proof[3], proof[2], proof[5], proof[4]]
+        let c = [proof[6], proof[7]]
+        // Original A.y is checked before negation, unlike the EVM assembly.
+        // B's canonical coordinates, curve and subgroup are checked even if
+        // A or C is infinity. Never clear a caller-supplied point's cofactor.
+        g1Validate(a)
+        g1Validate(c)
+        g2CheckSubgroup(b)
+
+        let claimDigest = receiptOkClaimDigest(imageId, journalDigest)
+        let signals = [receiptDigestHalfLE(RECEIPT_CONTROL_ROOT, 0),
+            receiptDigestHalfLE(RECEIPT_CONTROL_ROOT, 16), receiptDigestHalfLE(claimDigest, 0),
+            receiptDigestHalfLE(claimDigest, 16), RECEIPT_BN254_CONTROL_ID]
+        for (let mut i = 0; i < 5; i = i + 1) {
+            g1ScalarValidate(signals[i])
+        }
+        let vkX = receiptClaimMsm(signals[2], signals[3])
+        let alpha = vkAlpha()
+        let beta = vkBeta()
+        let gamma = vkGamma()
+        let delta = vkDelta()
+        // Private engine precondition: proof points admitted above; fixed key
+        // points admitted by the unconditional exact-source host certificate;
+        // vkX derived from its six fixed G1 points and five canonical signals.
+        let pairs = [a[0], fpNeg(a[1]), b[0], b[1], b[2], b[3],
+            alpha[0], alpha[1], beta[0], beta[1], beta[2], beta[3],
+            vkX[0], vkX[1], gamma[0], gamma[1], gamma[2], gamma[3],
+            c[0], c[1], delta[0], delta[1], delta[2], delta[3]]
+        return pairs
+    }
+}

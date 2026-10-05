@@ -1,0 +1,35 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2020 ConsenSys Software Inc. (Gnark Crypto reference).
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//     https://www.apache.org/licenses/LICENSE-2.0
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// G1 affine admission from Gnark Crypto revision
+// 703a260c2f991d01e245adf53d20f76af4210c5f, ecc/bn254/g1.go.
+// https://github.com/Consensys/gnark-crypto/blob/703a260c2f991d01e245adf53d20f76af4210c5f/ecc/bn254/g1.go
+// Affine [x,y] has infinity [0,0]; finite points satisfy y^2=x^3+3.
+// Check both canonical coordinates before testing infinity or curve membership.
+// Separate affine admission lets raw pairing retain every G1 boundary check
+// without inheriting Jacobian/scalar/MSM operations it does not perform.
+
+Abstract Contract Bn254G1Validation(fpModulus: U256) extends Bn254Fp(fpModulus) {
+    const G1_INVALID_POINT = 1100
+
+    // G1's full curve group has prime order r: no extra subgroup operation.
+    fn g1Validate(a: [U256; 2]) -> () {
+        fpValidate(a[0])
+        fpValidate(a[1])
+        if (a[0] != 0 || a[1] != 0) {
+            let xSquared = fpSquare(a[0])
+            let rhs = fpAdd(fpMul(xSquared, a[0]), 3)
+            assert!(fpSquare(a[1]) == rhs, G1_INVALID_POINT)
+        }
+    }
+}

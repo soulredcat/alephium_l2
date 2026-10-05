@@ -1,0 +1,155 @@
+//! Exact staged receipt and canonical factory artifact closures.
+use crate::source_inventory::{FIXED_PAIR, FP, FP2, G1_VALIDATION, MILLER_CORE, Source};
+pub(crate) const STAGED_RECEIPT: &[Source] = &[
+    FP,
+    FP2,
+    G1_VALIDATION,
+    MILLER_CORE,
+    FIXED_PAIR,
+    Source {
+        filename: "verification_key.ral",
+        origin: "l2/contracts/alephium/verifier/verification_key.ral",
+        contract: "Risc0VerificationKey",
+        bytes: include_bytes!("../../contracts/alephium/verifier/verification_key.ral"),
+    },
+    Source {
+        filename: "g1.ral",
+        origin: "l2/contracts/alephium/verifier/g1.ral",
+        contract: "Bn254G1",
+        bytes: include_bytes!("../../contracts/alephium/verifier/g1.ral"),
+    },
+    Source {
+        filename: "fp6.ral",
+        origin: "l2/contracts/alephium/verifier/fp6.ral",
+        contract: "Bn254Fp6",
+        bytes: include_bytes!("../../contracts/alephium/verifier/fp6.ral"),
+    },
+    Source {
+        filename: "fp12.ral",
+        origin: "l2/contracts/alephium/verifier/fp12.ral",
+        contract: "Bn254Fp12",
+        bytes: include_bytes!("../../contracts/alephium/verifier/fp12.ral"),
+    },
+    Source {
+        filename: "frobenius.ral",
+        origin: "l2/contracts/alephium/verifier/frobenius.ral",
+        contract: "Bn254Frobenius",
+        bytes: include_bytes!("../../contracts/alephium/verifier/frobenius.ral"),
+    },
+    Source {
+        filename: "sparse.ral",
+        origin: "l2/contracts/alephium/verifier/sparse.ral",
+        contract: "Bn254Sparse",
+        bytes: include_bytes!("../../contracts/alephium/verifier/sparse.ral"),
+    },
+    Source {
+        filename: "g2.ral",
+        origin: "l2/contracts/alephium/verifier/g2.ral",
+        contract: "Bn254G2",
+        bytes: include_bytes!("../../contracts/alephium/verifier/g2.ral"),
+    },
+    Source {
+        filename: "g2_subgroup.ral",
+        origin: "l2/contracts/alephium/verifier/g2_subgroup.ral",
+        contract: "Bn254G2Subgroup",
+        bytes: include_bytes!("../../contracts/alephium/verifier/g2_subgroup.ral"),
+    },
+    Source {
+        filename: "miller_lines.ral",
+        origin: "l2/contracts/alephium/verifier/miller_lines.ral",
+        contract: "Bn254MillerLines",
+        bytes: include_bytes!("../../contracts/alephium/verifier/miller_lines.ral"),
+    },
+    Source {
+        filename: "receipt_claims.ral",
+        origin: "l2/contracts/alephium/verifier/receipt_claims.ral",
+        contract: "Risc0ReceiptClaims",
+        bytes: include_bytes!("../../contracts/alephium/verifier/receipt_claims.ral"),
+    },
+    Source {
+        filename: "staged_receipt.ral",
+        origin: "l2/contracts/alephium/verifier/staged_receipt.ral",
+        contract: "Risc0StagedReceiptVerifier",
+        bytes: include_bytes!("../../contracts/alephium/verifier/staged_receipt.ral"),
+    },
+];
+
+pub(crate) const STAGED_FACTORY: &[Source] = &[
+    FP,
+    FP2,
+    G1_VALIDATION,
+    MILLER_CORE,
+    FIXED_PAIR,
+    Source {
+        filename: "verification_key.ral",
+        origin: "l2/contracts/alephium/verifier/verification_key.ral",
+        contract: "Risc0VerificationKey",
+        bytes: include_bytes!("../../contracts/alephium/verifier/verification_key.ral"),
+    },
+    Source {
+        filename: "g1.ral",
+        origin: "l2/contracts/alephium/verifier/g1.ral",
+        contract: "Bn254G1",
+        bytes: include_bytes!("../../contracts/alephium/verifier/g1.ral"),
+    },
+    Source {
+        filename: "fp6.ral",
+        origin: "l2/contracts/alephium/verifier/fp6.ral",
+        contract: "Bn254Fp6",
+        bytes: include_bytes!("../../contracts/alephium/verifier/fp6.ral"),
+    },
+    Source {
+        filename: "fp12.ral",
+        origin: "l2/contracts/alephium/verifier/fp12.ral",
+        contract: "Bn254Fp12",
+        bytes: include_bytes!("../../contracts/alephium/verifier/fp12.ral"),
+    },
+    Source {
+        filename: "frobenius.ral",
+        origin: "l2/contracts/alephium/verifier/frobenius.ral",
+        contract: "Bn254Frobenius",
+        bytes: include_bytes!("../../contracts/alephium/verifier/frobenius.ral"),
+    },
+    Source {
+        filename: "sparse.ral",
+        origin: "l2/contracts/alephium/verifier/sparse.ral",
+        contract: "Bn254Sparse",
+        bytes: include_bytes!("../../contracts/alephium/verifier/sparse.ral"),
+    },
+    Source {
+        filename: "g2.ral",
+        origin: "l2/contracts/alephium/verifier/g2.ral",
+        contract: "Bn254G2",
+        bytes: include_bytes!("../../contracts/alephium/verifier/g2.ral"),
+    },
+    Source {
+        filename: "g2_subgroup.ral",
+        origin: "l2/contracts/alephium/verifier/g2_subgroup.ral",
+        contract: "Bn254G2Subgroup",
+        bytes: include_bytes!("../../contracts/alephium/verifier/g2_subgroup.ral"),
+    },
+    Source {
+        filename: "miller_lines.ral",
+        origin: "l2/contracts/alephium/verifier/miller_lines.ral",
+        contract: "Bn254MillerLines",
+        bytes: include_bytes!("../../contracts/alephium/verifier/miller_lines.ral"),
+    },
+    Source {
+        filename: "receipt_claims.ral",
+        origin: "l2/contracts/alephium/verifier/receipt_claims.ral",
+        contract: "Risc0ReceiptClaims",
+        bytes: include_bytes!("../../contracts/alephium/verifier/receipt_claims.ral"),
+    },
+    Source {
+        filename: "staged_receipt.ral",
+        origin: "l2/contracts/alephium/verifier/staged_receipt.ral",
+        contract: "Risc0StagedReceiptVerifier",
+        bytes: include_bytes!("../../contracts/alephium/verifier/staged_receipt.ral"),
+    },
+    Source {
+        filename: "staged_factory.ral",
+        origin: "l2/contracts/alephium/verifier/staged_factory.ral",
+        contract: "Risc0StagedReceiptFactory",
+        bytes: include_bytes!("../../contracts/alephium/verifier/staged_factory.ral"),
+    },
+];
