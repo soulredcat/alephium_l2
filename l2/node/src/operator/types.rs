@@ -36,6 +36,8 @@ pub struct ReplayReport {
     pub state_digest: B256,
     pub blocks: u64,
     pub executed_transactions: u64,
+    /// Local terminal outcomes that are not inputs to any committed block.
+    pub discarded_intents: u64,
     pub rejected_intents: u64,
     pub pending_count: usize,
     pub rejected_policy_revalidated: bool,

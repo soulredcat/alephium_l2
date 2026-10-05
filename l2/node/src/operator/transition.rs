@@ -38,7 +38,7 @@ pub fn prepare_transition(
         || replay.pending_count != 0
     {
         return Err(
-            "Transition export requires exactly one executed input and no other intents".into(),
+            "Transition export requires exactly one executed input without in-block rejected or pending intents".into(),
         );
     }
     let work = files::existing_directory(work)?;
@@ -115,13 +115,17 @@ fn validated_bundle(
     genesis: &Genesis,
     replay: &ReplayReport,
 ) -> Result<TransitionBundle, String> {
+    let admitted = replay
+        .executed_transactions
+        .checked_add(replay.discarded_intents)
+        .ok_or("Transition admission count overflow")?;
     if source.chain_id() != genesis.chain_id
         || target.chain_id() != genesis.chain_id
         || source.head != replay.head
         || target.head != replay.head
         || source.head.height != 1
-        || source.pending_counter()? != 1
-        || target.pending_counter()? != 1
+        || source.pending_counter()? != admitted
+        || target.pending_counter()? != admitted
         || source.state_digest()? != replay.state_digest
         || target.state_digest()? != replay.state_digest
     {

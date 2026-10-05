@@ -108,10 +108,14 @@ fn validated_bundle(
     batch_start: u64,
     domain: SettlementDomain,
 ) -> Result<BatchTransitionBundle, String> {
+    let admitted = replay
+        .executed_transactions
+        .checked_add(replay.discarded_intents)
+        .ok_or("Batch admission count overflow")?;
     for view in [source, target] {
         if view.chain_id() != genesis.chain_id
             || view.head != replay.head
-            || view.pending_counter()? != replay.executed_transactions
+            || view.pending_counter()? != admitted
             || view.state_digest()? != replay.state_digest
         {
             return Err("Batch stores differ from verified replay".into());
