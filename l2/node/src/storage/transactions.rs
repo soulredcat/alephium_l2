@@ -20,7 +20,7 @@ impl Store {
             .collect())
     }
 
-    fn pending_records(&self) -> Result<Vec<(u64, Pending)>, String> {
+    pub(super) fn pending_records(&self) -> Result<Vec<(u64, Pending)>, String> {
         let view = self.view()?;
         let mut pending = Vec::new();
         let mut hashes = BTreeSet::new();

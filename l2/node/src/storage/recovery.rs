@@ -177,6 +177,7 @@ pub(super) fn validate(
     if head != view.head {
         return Err("committed head does not match retained chain".into());
     }
+    super::discard::validate(view, &mut expected, &mut resolved)?;
     validate_pending(view, &mut expected, &resolved)?;
     for prefix in [0x10u8, 0x11, 0x12, 0x20, 0x21, 0x22] {
         for entry in view.snapshot.prefix(&view.items, [prefix]) {
@@ -216,7 +217,20 @@ pub(super) fn validate(
         let key = entry.key().map_err(super::engine_error)?;
         if !matches!(
             key.first(),
-            Some(0x01 | 0x02 | 0x03 | 0x10 | 0x11 | 0x12 | 0x20 | 0x21 | 0x22 | 0x23 | 0x30 | 0x31)
+            Some(
+                0x01 | 0x02
+                    | 0x03
+                    | 0x10
+                    | 0x11
+                    | 0x12
+                    | 0x20
+                    | 0x21
+                    | 0x22
+                    | 0x23
+                    | 0x24
+                    | 0x30
+                    | 0x31
+            )
         ) {
             return Err("unknown authoritative key namespace".into());
         }
