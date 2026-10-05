@@ -1,6 +1,7 @@
 mod block;
 mod blocks;
 mod checkpoint;
+mod discard;
 use crate::protocol::encoding;
 pub(crate) mod path;
 mod records;

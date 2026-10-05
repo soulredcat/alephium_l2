@@ -92,10 +92,23 @@ fn replay_with_checkpoint(
         executed_transactions = add_count(executed_transactions, expected.transactions.len())?;
         rejected_intents = add_count(rejected_intents, expected.rejected.len())?;
     }
+    // Intents the producer rejected outside any block are local outcomes, not
+    // block inputs. Recreate them so admission counts and statuses still match.
+    let discarded = source.discarded()?;
+    for (hash, reason) in &discarded {
+        admit(&mut target, load_intent(&source_view, *hash)?)?;
+        let status = target.discard(*hash, reason)?;
+        if Some(status) != source_view.status(*hash)? {
+            return Err("Replayed discarded intent status differs".into());
+        }
+    }
     let admitted_count = add_count(
-        executed_transactions
-            .checked_add(rejected_intents)
-            .ok_or("Replay count overflow")?,
+        add_count(
+            executed_transactions
+                .checked_add(rejected_intents)
+                .ok_or("Replay count overflow")?,
+            discarded.len(),
+        )?,
         pending.len(),
     )?;
     if source_view.pending_counter()? != admitted_count {

@@ -71,6 +71,7 @@ Rust applications connect with `Client::connect(endpoint, ExpectedNetwork { chai
 - Block gas limit: 30 million; logical transaction block size: 1 MiB; pending limit: 256 with one pending intent per sender.
 - Fixed zero development base fee, zero beneficiary/PREVRANDAO, and recorded Unix-second block timestamps. This is not Ethereum's dynamic fee market or consensus.
 - Optional `--min-gas-price <wei>` admission floor (default `0`). Admission rejects a transaction whose effective price at the zero base fee (legacy gas price, or the type-2 priority fee) is below it; `eth_gasPrice`, `eth_maxPriorityFeePerGas` and `/health` report it. It is node policy, not a block validity rule, so replay and transition export are unaffected. Without a floor, unfunded senders can submit zero-price transactions.
+- An admitted intent that fails validation when its block executes is resolved as `rejected` outside any block (status without a block height). Committed blocks carry executed transactions only, so every block stays representable by the transition witness.
 - Atomic Fjall batches with `SyncAll` for genesis, admission, and committed state/receipts/head; immutable committed read views and restart reconciliation.
 - Loopback-only RPC and SDK access. The node rejects non-loopback binding.
 

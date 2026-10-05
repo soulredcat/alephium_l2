@@ -195,16 +195,25 @@ impl Core {
         }
         let context = self.context()?;
         let result = execution::execute_block((*view).clone(), &selected, context)?;
-        let commit = BlockCommit {
-            parent: self.head.clone(),
-            context,
-            transactions: result.receipts.iter().map(|r| r.hash).collect(),
-            changes: result.changes,
-            receipts: result.receipts,
-            rejected: result.rejected,
-        };
-        let new_view = self.store.commit(commit)?;
+        // A rejected intent changes no state and no receipt, but the transition
+        // witness cannot represent one, so a block containing it could never be
+        // proven. Commit only executed transactions and resolve rejections
+        // outside the chain. Either way every selected intent leaves the queue.
+        if !result.receipts.is_empty() {
+            self.store.commit(BlockCommit {
+                parent: self.head.clone(),
+                context,
+                transactions: result.receipts.iter().map(|r| r.hash).collect(),
+                changes: result.changes,
+                receipts: result.receipts,
+                rejected: Vec::new(),
+            })?;
+        }
+        for (hash, reason) in &result.rejected {
+            self.store.discard(*hash, reason)?;
+        }
         self.pending.drain(..selected.len());
+        let new_view = self.store.view()?;
         self.publish(new_view)
     }
 
