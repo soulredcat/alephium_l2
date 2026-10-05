@@ -1,6 +1,6 @@
 # Continuation handoff: P4-P8
 
-Recorded 5 October 2026. **MAINNET RUNNING is incomplete; execution is paused by the operator.** This handoff does not resume implementation, WSL, builds, proving, node operations, deployment, or spending. Commands require explicit human resumption. The interrupted proof produced no accepted receipt; never restart it automatically.
+Updated 5 October 2026. **MAINNET RUNNING is incomplete; mainnet implementation and proving remain paused.** The operator authorized sequential PR review, necessary fixes and scoped tests for #2-#11. This does not authorize deployment, spending or resuming the interrupted proof. WSL and the original development instances remain untouched by this review.
 
 Read [README](../README.md) and [portable status/pins](../handoff/status.json). Extend the existing implementation without repeating P1-P3 or replacing the runtime/proof system. Every P4-P8 item remains unchecked.
 
@@ -11,7 +11,7 @@ Read [README](../README.md) and [portable status/pins](../handoff/status.json). 
 | P1-P3 | Original-host development transfer, deploy/call/write/revert, four receipts, exact accounting and restart consistency passed. No Alephium settlement, real funds, or current public endpoint is established. |
 | C16 | Historical receipt passed synthetic staged VM and canonical factory creation/acceptance. This is neither an L2 transition proof nor live/public-testnet settlement. |
 | P4 schema 2 | Four runtime blocks matched native portable-core replay, suffix chaining and mutations. Older guest compilation/kernel packaging passed. Proving was interrupted without a receipt. |
-| Current schema 3 | Binary checkpoint source is integrated. Native export/roundtrip/rejection passed; native ecrecover passed 11 cases/12 blocks. Current portable-core agreement, guest compilation/execution, backend parity and proof remain unverified. |
+| Current witness schema 3 / execution schema 2 | CI regenerated runtime fixtures and passed portable-core batch, checkpoint/suffix/mutation and 11-case ecrecover agreement checks. Local Windows profile/replay and SDK/restart tests passed. Guest compilation/execution and an actual proof remain unverified. |
 
 Continuation transport permits **8 MiB checkpoint input within a 16 MiB binary witness**, with bounded batches, storage epochs and rolling BLOCKHASH history. Producer admission budgets, state-growth/recovery headroom and release operating limits remain unqualified.
 
@@ -34,9 +34,9 @@ Required source/reference fixtures are under `l2/`. Private witnesses, databases
 ## Next concrete sequence after human resumption
 
 1. Confirm source/pins/resources; assign one build/ports/integration coordinator and bounded independent reviewers.
-2. Compile affected native packages; recreate four-block/precompile fixtures. Check binary producer/core agreement, canonical encoding, hidden state, suffix roots, mutations and native secp256k1 versus portable k256.
-3. Run the bounded **execution-only preflight**: the proof host's `--execute-only` mode (in place of `--output`) uses `Executor::execute` on the pinned `ExternalProver` with the same input framing/cycle ceiling, requires `Halted(0)`, compares the exact canonical journal, writes no artifacts and needs no Docker. Ordinary `r0vm` CLI and `--receipt-kind composite` still prove; they are not execution-only substitutes. Check resource bounds before another proof attempt, without a benchmark campaign.
-4. Build/package/repin the guest and preflight checkpoint/precompile inputs. Resolve disagreement and continuation/recovery budgets without weakening validation, durability or proof parameters.
+2. Reuse the native agreement CI from PR #6. If shared execution changes, rebuild affected packages and regenerate fixtures to recheck binary encoding, hidden state, suffix roots, mutations and native secp256k1 versus portable k256.
+3. Build, package, review and repin the current guest; historical guest artifacts do not cover execution schema 2.
+4. Run bounded **execution-only preflight** with `--execute-only` in place of `--output`. It uses the pinned `ExternalProver` with shared input framing/cycle ceiling, requires `Halted(0)` and the exact native journal, writes no artifacts and needs no Docker. Ordinary `r0vm` CLI and `--receipt-kind composite` still prove. Check checkpoint/precompile and representative boundary inputs; resolve disagreement and recovery headroom before proving, without a benchmark campaign.
 5. Generate a real bounded local Groth16 receipt; independently verify image/journal and exercise `--staged-actual`. Close P4 before public settlement; preserve failures and distinguish synthetic from actual network evidence.
 
 These Bash templates require configured toolchains and explicit resumption; they do not claim current-source success. Start at repository root, use new private directories, and never print inputs:
@@ -82,7 +82,7 @@ Build from `l2/proof` to apply its target configuration. Set `RISC0_RUST_TOOLCHA
 )
 ```
 
-The helper converts raw ELF to official kernel-packaged `ProgramBinary`. Review its manifest/image and pass the missing execution-only preflight before continuing.
+The helper converts raw ELF to official kernel-packaged `ProgramBinary`. Review its manifest/image and pass execution-only preflight before continuing.
 
 Preflight the packaged guest with the same environment restrictions as the proof command below, replacing `--output "$work/proof"` with `--execute-only`. It prints only the exit status, user cycles/segments against the ceiling and the public journal SHA-256.
 
@@ -141,6 +141,25 @@ The current factory is a development singleton. A cloned verifier can initialize
 Public-testnet acceptance cannot be replaced by mainnet read-only simulation. Independent audit and real-value launch require their actual evidence and approvals; this document does not authorize purchases, signing, funding or deployment.
 
 Final completion requires all six: **running approved mainnet runtime/contracts and usable RPC; actual canonical settlement; independently available/reconstructible data; backing plus withdrawals and permissionless recovery; qualified recovery and observed operation; approved audited release with no material blocker.** Mark complete only when each has actual evidence, then stop without expanding scope.
+
+## Open audit findings (5 October 2026)
+
+Internal source review plus scoped native checks; this is not the independent release audit required by P7.2. PRs #2-#10 contain the reviewed fixes and their checks. The remaining findings below require protocol work, an operator decision, target tooling or qualified execution evidence. None closes a checklist item.
+
+| ID | Severity | Finding and evidence | Direction | Items |
+| --- | --- | --- | --- | --- |
+| A1 | Critical | The staged verifier is one fixed child (`CHILD_PATH`) whose `begin` is permissionless, accepts any admissible seal/image/journal and has no reset. Whoever calls `begin` first, including a front-runner, fixes its statement; a seal that fails the final pairing leaves it stuck before phase 3. `accepted(expected)` then fails permanently. | Bind each session to its expected statement before `begin` (for example a child path derived from the statement and checked by `begin`), so sessions cannot be hijacked and an abandoned one cannot block later batches. | P4.3, P5.1, P5.2 |
+| A2 | Critical | The producer has no admission guard for the 8 MiB continuation checkpoint (`MAX_CONTINUATION_CHECKPOINT_BYTES`). State growth can exceed export/proof bounds and prevent settlement. Schema 2 removes phantom tombstones, and #4 adds an optional price floor; neither enforces the checkpoint bound. | Enforce the encoded checkpoint bound before commit and qualify recovery/exit headroom. Pricing alone is insufficient. | P4.1, P7.1 |
+| A3 | High | A block containing a rejected intent can never be proven: the core always rebuilds `rejected: []`, and batch/checkpoint export refuse any rejected intent anywhere in replayed history. Rejection at execution is near-unreachable today, but P6 messages or admission changes can make one block block all later settlement. | Either never commit rejected intents (drop them before commit) or make rejection part of the witness that the guest re-validates. | P4.1, P6.1 |
+| A4 | High | `checkpoint_batch_data` (the DA commitment preimage) includes the complete checkpoint, up to 8 MiB, for every batch; public transport, cost and retrieval at that bound are unqualified. Checkpoint export also requires zero pending intents. | Qualify one bounded DA path, including suffix/delta reconstruction from accepted data and export from a committed boundary while admission continues. | P5.1 |
+| A5 | High | Worst-case guest cost is unmeasured. The guest re-encodes and hashes the full checkpoint several times and recomputes Keccak for all code against a 268,435,456-cycle ceiling. Native agreement passed small fixtures; current guest execution remains pending. | Use execution-only preflight (#7) on representative boundary inputs before qualifying the producer bound; lower the bound or fix the cost if it fails. | P4.2 |
+| A6 | High | Block timestamps are the sequencer's clock, checked only as non-decreasing; the statement does not relate them to L1 time, and a far-future value is irreversible. | Bound `context.timestamp` against L1 time at settlement (or in the statement) with a declared drift. | P4.1, P5.1 |
+| A7 | Medium | Fees are credited to the zero address (beneficiary zero), so fee revenue cannot pay proof/DA costs. | Choose a fee recipient and accounting in runtime and guest together; repin. | P7.3 |
+| A8 | Medium | Transaction objects omit `v/r/s/yParity` by policy, so typed clients cannot read transactions or full blocks (Alloy/Foundry `get_transaction_by_hash`, ethers `getTransaction`). The DA payload publishes the signed envelopes anyway. | Operator decision on exposing signatures for a public RPC. | P8.2 |
+| A9 | Medium | Every node start validates all retained commits and reconstructs expected records in memory (`storage/recovery.rs`); this is not EVM re-execution. Offline EVM replay and transition export are limited to 10,000 blocks. | Qualify bounded startup/recovery from authenticated checkpoints; retain full replay as an operator command. | P7.2 |
+| A10 | Medium | Runtime and SDK are development-bound: loopback-only access, development profile/health handshake, and one pending intent per sender with 256 total. The RPC server has no explicit request deadline or rate limit; the SDK already bounds connect/request/wait time. | Define the release profile and public RPC front (TLS, server deadlines, rate limits) and the mempool policy explicitly. | P7.1, P7.3 |
+| A11 | Low | Fail-stop classification depends on error message prefixes (`is_infrastructure_error`, `Storage read failed`). | Typed infrastructure errors. | P7.2 |
+| A12 | Release | No license is declared for first-party code; existing third-party license obligations still apply. | Operator choice before licensing the code for external reuse. | P7.3 |
 
 ## Operating rules
 

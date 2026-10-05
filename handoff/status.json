@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "updated": "2026-10-05",
-  "scope": "Portable source handoff for P4-P8 continuation; curated recorded results, not a new run",
-  "status": "paused-awaiting-human-resumption",
+  "scope": "Portable continuation status; original handoff evidence retained with scoped PR review updates",
+  "status": "mainnet-implementation-and-proving-paused; scoped-PR-review-authorized",
   "mainnet_complete": false,
   "all_p4_p8_checkboxes_complete": false,
   "private_material_included": false,
@@ -19,7 +19,8 @@
       "12 oracle manifest entries verified",
       "only README.md and docs/HANDOFF.md Markdown",
       "no tested credential patterns found"
-    ]
+    ],
+    "recorded_scope": "Initial PR #1 source handoff; later source changes are recorded separately below"
   },
   "recorded_checks": [
     {
@@ -89,16 +90,18 @@
     }
   ],
   "current_code": {
-    "latest_proof_core_and_guest_validation": "pending after binary3/shared-codec changes",
+    "latest_proof_core_and_guest_validation": "Native runtime/core batch, ecrecover and schema3 checkpoint agreement passed on fresh execution-schema-2 fixtures in PR #6 CI; guest compile/execute/proof pending",
     "producer_resource_and_exit_headroom": "unqualified; enforce before mainnet",
     "completed_current_transition_receipt": false,
     "checkpoint_schema": 3,
     "interrupted_attempt": "Stopped by operator; no accepted receipt or resumable proof claim",
     "max_suffix_blocks": 256,
     "canonical_checkpoint_profile_bytes": 8388608,
-    "execution_only_preflight": "required next; not implemented",
+    "execution_only_preflight": "Implemented in PR #7; host validation unit tests pass; actual packaged current-guest execution pending",
     "complete_input_bytes": 16777216,
-    "checkpoint_wire": "ALEPHIUM-L2/TRANSITION/WIRE/V3"
+    "checkpoint_wire": "ALEPHIUM-L2/TRANSITION/WIRE/V3",
+    "execution_storage_schema": 2,
+    "legacy_storage_policy": "Schema-1 databases/backups rejected before engine open; original binaries/data retained; no migration"
   },
   "pins": {
     "guest_session_limit_cycles": 268435456,
@@ -137,7 +140,7 @@
     "toolchains, compiler binaries and Docker images",
     "machine-specific PIDs/session handles/local absolute paths"
   ],
-  "next_acceptance": "Current schema3 native/core/guest agreement, then actual proof and canonical target acceptance; afterward all P5-P8 requirements in docs/HANDOFF.md",
+  "next_acceptance": "Build/package/repin and execute the current guest, qualify producer/proof/recovery bounds, then actual proof and canonical target acceptance; all P4-P8 gates remain open",
   "contribution_workflow": {
     "implementation": "topic branch and pull request",
     "reviewer": "designated reviewing assistant",
@@ -145,5 +148,21 @@
     "failing_pr": "leave open with actionable findings",
     "direct_main_push": false,
     "handoff_merge_is_feature_or_mainnet_acceptance": false
+  },
+  "pr_review_20261005": {
+    "scope": "Sequential review and necessary fixes for PR #2-#11, not mainnet acceptance",
+    "native_agreement_run": "https://github.com/soulredcat/alephium_l2/actions/runs/37327778488",
+    "preflight_host_checks_run": "https://github.com/soulredcat/alephium_l2/actions/runs/37327844723",
+    "local_checks": [
+      "Windows gas estimation and admission tests",
+      "Execution profile identity, legacy refusal, restart and replay",
+      "SDK identity, durable transfer, restart and ambiguous response",
+      "JSON-RPC mixed/all notifications and compatibility parsing",
+      "Complete/partial/legacy block-hash indexes and durable failure/reopen"
+    ],
+    "wsl_or_prover_started": false,
+    "existing_nodes_replaced": false,
+    "guest_receipt_generated": false,
+    "settlement_accepted": false
   }
 }
