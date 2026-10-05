@@ -8,7 +8,9 @@ pub(crate) mod head_codec;
 pub(crate) mod receipt_codec;
 
 pub const CHAIN_ID: u64 = 424243;
-pub const SCHEMA: u32 = 1;
+/// Schema 2 excludes absent-to-absent account removals from block changes.
+/// This is a fresh development chain profile, not an upgrade of schema 1 data.
+pub const SCHEMA: u32 = 2;
 pub const BLOCK_INTERVAL_MS: u64 = 200;
 pub const BLOCK_GAS: u64 = 30_000_000;
 pub const BLOCK_BYTES: usize = 1_048_576;
@@ -143,6 +145,8 @@ pub struct TransactionInfo {
     pub sender: Address,
     pub nonce: u64,
     pub gas_limit: u64,
+    /// Effective price per gas at this profile's fixed zero base fee.
+    pub gas_price: u128,
 }
 
 #[derive(Clone, Debug)]
@@ -161,6 +165,8 @@ pub struct CallResult {
     pub success: bool,
     pub output: Vec<u8>,
     pub gas_used: u64,
+    /// Gas consumed before refunds; a successful limit is at least this value.
+    pub gas_spent: u64,
     pub halted: bool,
 }
 
