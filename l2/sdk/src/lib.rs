@@ -4,6 +4,7 @@ mod client;
 mod receipt;
 mod transaction;
 mod types;
+pub mod wallet;
 
 pub use client::Client;
 pub use transaction::PreparedTransaction;

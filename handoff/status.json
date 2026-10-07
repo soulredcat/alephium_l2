@@ -152,5 +152,20 @@
     "credentials, signing records and sensitive payloads"
   ],
   "dependency_boundary": "Rust host/runtime; explicit CUDA C++17/PTX, NVIDIA NVCC/driver, native secp256k1 C, native Groth16 and Scala/JVM dependencies",
-  "license_boundary": "Retain file-specific MIT, Apache-2.0 and applicable GPL-3.0-or-later obligations; no blanket first-party license declared"
+  "license_boundary": "Retain file-specific MIT, Apache-2.0 and applicable GPL-3.0-or-later obligations; no blanket first-party license declared",
+  "wallet_adapter_scaffold": {
+    "version": 1,
+    "source": "l2/sdk/src/wallet",
+    "external_template": "l2/sdk/examples/wallet_adapter_template.rs",
+    "Alephium_L1_namespace": true,
+    "Alephium_wallet_EVM_L2_template": true,
+    "MetaMask_EVM_semantics_retained": true,
+    "local_aggregate_validation_passed": true,
+    "wallet_connected": false,
+    "signing_or_broadcast_performed": false,
+    "L1_signed_response_validation_implemented": false,
+    "template_result": "Unsupported",
+    "Ethereum_signature_binds_genesis": false,
+    "genesis_is_trusted_caller_RPC_pin": true
+  }
 }

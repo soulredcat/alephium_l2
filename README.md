@@ -75,3 +75,13 @@ The corrected prover has **nine ordered SDK patches plus one cumulative Sppark 0
 Native canonical DA export/reconstruction and retain-unsettled packages are present. This is a retained local P5.1 foundation; P5 settlement/public availability and consecutive-batch acceptance remain pending.
 
 Preserve file-specific licenses. GPU headers/reference data retain MIT provenance; Gnark-derived arithmetic retains Apache-2.0; applicable receipt/key/factory/tooling files retain GPL-3.0-or-later notices. See [GPU provenance](l2/gpu/vendor/provenance.json) and [license](l2/gpu/vendor/LICENSE). These notices do not declare a blanket license for all first-party code.
+
+## External wallet adapter scaffold
+
+The SDK provides a version-1 adapter contract for a future Alephium wallet on both Alephium L1 and EVM L2, preserving standard Legacy/EIP-1559 transaction semantics for a MetaMask-compatible EVM adapter. The external wallet adapts to the repository interface; no wallet product or account connection is assumed.
+
+See [adapter types](l2/sdk/src/wallet/types.rs), [request/response validation](l2/sdk/src/wallet/validation.rs) and the [external adapter template](l2/sdk/examples/wallet_adapter_template.rs). Keep Alephium addresses and Ethereum/EVM accounts in their distinct namespaces. Persist caller-selected request/intent/network/account/transaction context before requesting a signature; compare the returned response to that retained request, then use the existing explicit submit-once/reconcile interfaces.
+
+The shipped template returns `Unsupported` and does not hold keys, sign, connect a wallet or broadcast. EVM signed responses are checked for canonical encoding, chain ID, signer and the exact intended Legacy/EIP-1559 transaction, including nonce, gas, recipient, value, calldata, fee fields and ordered access list. Ethereum signatures bind transaction fields and chain ID, not genesis or adapter request IDs; genesis remains a separately trusted caller/RPC pin. Adapter intent/payload Keccak domains are distinct from Alephium transaction IDs and settlement SHA-256 commitments.
+
+L1 signed responses remain `UnsupportedL1Validation` until canonical transaction/signature, authority and complete spending-limit validation are implemented. Echoing opaque bytes or hashes is not proof of spending correctness. The aggregate SDK validation and both examples compiled and passed locally; this is scaffold/interface evidence, not actual wallet integration or public settlement acceptance. P5 implementation remains in progress.
