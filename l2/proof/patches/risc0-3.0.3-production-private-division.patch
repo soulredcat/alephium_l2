@@ -1,0 +1,51 @@
+--- a/risc0/zkp/src/hal/cuda.rs
++++ b/risc0/zkp/src/hal/cuda.rs
+@@ -1038,44 +1038,13 @@
+         cycles: usize,
+     ) {
+         scope!("combos_divide");
+-        let chunk_count = chunks.len();
+         for (i, pows) in chunks {
+             let combo_slice = combos.slice(i * cycles, cycles);
+-            // Private diagnostic: retain one CPU reference per combo and use
+-            // a synchronous, slice-bounded readback after every GPU division.
+-            // The extra barriers and CPU work alter execution timing; a pass
+-            // under this probe does not independently qualify the CUDA path.
+-            let mut reference = Vec::with_capacity(cycles);
+-            combo_slice.view(|values| reference.extend_from_slice(values));
+-            for (root_index, &pow) in pows.iter().enumerate() {
+-                let cpu_remainder = crate::core::poly::poly_divide(&mut reference, pow);
+-                let gpu_remainder = self.poly_divide(&combo_slice, pow);
+-                let mut first_mismatch = None;
+-                let mut mismatch_count = 0usize;
+-                combo_slice.view(|values| {
+-                    assert!(
+-                        values.len() == reference.len(),
+-                        "CUDA division diagnostic length mismatch: chunks={chunk_count}, index={i}, root_index={root_index}, cycles={cycles}"
+-                    );
+-                    for (index, (actual, expected)) in values.iter().zip(&reference).enumerate() {
+-                        // Sppark stores the remainder in the final slot; CPU
+-                        // division leaves zero there for its next division.
+-                        let expected = if index + 1 == reference.len() {
+-                            &cpu_remainder
+-                        } else {
+-                            expected
+-                        };
+-                        if actual != expected {
+-                            first_mismatch.get_or_insert(index);
+-                            mismatch_count += 1;
+-                        }
+-                    }
+-                });
+-                let gpu_remainder_zero = gpu_remainder == Self::ExtElem::ZERO;
+-                let cpu_remainder_zero = cpu_remainder == Self::ExtElem::ZERO;
++            for pow in pows {
++                let remainder = self.poly_divide(&combo_slice, pow);
+                 assert!(
+-                    gpu_remainder_zero && cpu_remainder_zero && mismatch_count == 0,
+-                    "CUDA polynomial division invariant failed: diagnostic=v3, chunks={chunk_count}, index={i}, root_index={root_index}, cycles={cycles}, gpu_remainder_zero={gpu_remainder_zero}, cpu_remainder_zero={cpu_remainder_zero}, first_mismatch={first_mismatch:?}, mismatch_count={mismatch_count}"
++                    remainder == Self::ExtElem::ZERO,
++                    "CUDA polynomial division invariant failed: index={i}, cycles={cycles}"
+                 );
+             }
+         }

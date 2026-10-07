@@ -1,9 +1,9 @@
 use super::encoding::{Decoder, Encoder};
+use crate::protocol::hash::{Digest, Sha256};
 pub(super) use crate::protocol::head_codec::{decode_head, encode_head, read_head};
 pub(super) use crate::protocol::receipt_codec::{decode_receipt, encode_receipt};
-use crate::protocol::{Account, Genesis, Head, TransactionStatus};
+use crate::protocol::{Account, Capacity, Genesis, Head, TransactionStatus};
 use alloy_primitives::{B256, keccak256};
-use sha2::{Digest, Sha256};
 
 pub(super) fn genesis_bytes(genesis: &Genesis) -> Result<Vec<u8>, String> {
     use crate::protocol::{BLOCK_BYTES, BLOCK_GAS, BLOCK_INTERVAL_MS, SCHEMA};
@@ -22,6 +22,23 @@ pub(super) fn genesis_bytes(genesis: &Genesis) -> Result<Vec<u8>, String> {
     for account in accounts {
         out.address(account.address);
         out.amount(account.balance);
+    }
+    // Keep the original default identity exact. An extended profile binds
+    // every limit under an explicit domain/version after the legacy prefix.
+    if genesis.capacity != Capacity::default() {
+        out.bytes(b"alephium-l2-development/capacity/v1")?;
+        out.u32(1);
+        out.u64(genesis.capacity.block_gas);
+        out.u64(u64::try_from(genesis.capacity.block_bytes).map_err(|_| "capacity byte overflow")?);
+        out.u64(
+            u64::try_from(genesis.capacity.max_pending).map_err(|_| "capacity count overflow")?,
+        );
+    }
+    if genesis.capacity.uses_extended_runtime_codec() {
+        out.bytes(b"alephium-l2-development/runtime-codec/v1")?;
+        out.u32(1);
+        out.u64(genesis.capacity.runtime_record_bytes()? as u64);
+        out.u64(genesis.capacity.runtime_checkpoint_bytes()? as u64);
     }
     out.finish()
 }

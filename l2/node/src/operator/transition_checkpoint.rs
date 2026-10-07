@@ -2,7 +2,7 @@
 use super::{
     files,
     replay::{MAX_REPLAY_BLOCKS, verify_replay_at},
-    transition::{preflight, publish_private_binary},
+    transition::{preflight, preflight_retained, publish_private_binary},
     transition_batch::{validate_block, validated_input},
     transition_types::{
         CheckpointTransitionBundle, CheckpointTransitionReport, MAX_TRANSITION_BLOCKS,
@@ -10,10 +10,17 @@ use super::{
     },
     transition_wire::{
         MAX_CHECKPOINT_WIRE_BYTES, checkpoint_transition_base_bytes,
-        checkpoint_transition_block_bytes, encode_checkpoint_transition,
+        checkpoint_transition_block_bytes_with_capacity, encode_checkpoint_transition,
+    },
+    transition_wire_large::{
+        encode_large_checkpoint_transition, large_checkpoint_transition_base_bytes,
+        large_checkpoint_transition_block_bytes,
     },
 };
-use crate::{protocol::Genesis, storage::Store};
+use crate::{
+    protocol::{Genesis, proof_transport::ProofLimits},
+    storage::Store,
+};
 use alloy_primitives::B256;
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeSet, path::Path};
@@ -31,6 +38,12 @@ pub fn prepare_transition_checkpoint(
 ) -> Result<CheckpointTransitionReport, String> {
     genesis.validate()?;
     domain.validate()?;
+    let large = genesis.capacity.uses_extended_runtime_codec();
+    let limits = if large {
+        Some(ProofLimits::for_capacity(genesis.capacity)?)
+    } else {
+        None
+    };
     if batch_start == 0 || batch_start > MAX_REPLAY_BLOCKS {
         return Err("Checkpoint bootstrap boundary exceeds the offline replay profile".into());
     }
@@ -39,7 +52,11 @@ pub fn prepare_transition_checkpoint(
     let max_head = batch_start
         .saturating_add(MAX_TRANSITION_BLOCKS - 1)
         .min(MAX_REPLAY_BLOCKS);
-    preflight(&backup, genesis, max_head)?;
+    if large {
+        preflight_retained(&backup, genesis, max_head)?;
+    } else {
+        preflight(&backup, genesis, max_head)?;
+    }
     let (replay, checkpoint) = verify_replay_at(&backup, genesis, work, batch_start - 1)?;
     if replay.blocks < batch_start || replay.rejected_intents != 0 || replay.pending_count != 0 {
         return Err(
@@ -62,6 +79,7 @@ pub fn prepare_transition_checkpoint(
         .ok_or("Checkpoint admission count overflow")?;
     for view in [&source, &target] {
         if view.chain_id() != genesis.chain_id
+            || view.capacity() != genesis.capacity
             || view.head != replay.head
             || view.pending_counter()? != admitted
             || view.state_digest()? != replay.state_digest
@@ -75,19 +93,33 @@ pub fn prepare_transition_checkpoint(
         }
     }
     if checkpoint.chain_id != genesis.chain_id
+        || checkpoint.capacity != genesis.capacity
         || checkpoint.genesis_id != replay.head.genesis_id
         || checkpoint.head.height != batch_start - 1
     {
         return Err("Captured checkpoint identity or boundary differs".into());
     }
-    let checkpoint_bytes = checkpoint.encode()?;
-    let checkpoint_sha256 = B256::from_slice(&Sha256::digest(&checkpoint_bytes));
-    let mut encoded_bytes = checkpoint_transition_base_bytes(
-        "development/c5-v1",
-        &replay.execution_engine,
-        checkpoint_bytes.len(),
-    )?;
-    drop(checkpoint_bytes);
+    let checkpoint_len = checkpoint.encoded_len()?;
+    let mut checkpoint_hash = Sha256::new();
+    checkpoint.write_encoded(&mut |bytes| {
+        checkpoint_hash.update(bytes);
+        Ok(())
+    })?;
+    let checkpoint_sha256 = B256::from_slice(&checkpoint_hash.finalize());
+    let mut encoded_bytes = match limits {
+        Some(limits) => large_checkpoint_transition_base_bytes(
+            "development/c5-v1",
+            &replay.execution_engine,
+            checkpoint_len,
+            limits,
+        )?,
+        None => checkpoint_transition_base_bytes(
+            "development/c5-v1",
+            &replay.execution_engine,
+            checkpoint_len,
+        )?,
+    };
+    let mut transcript_bytes = 0usize;
     let mut previous = checkpoint.head.clone();
     let mut hashes = BTreeSet::new();
     let mut blocks = Vec::new();
@@ -95,7 +127,7 @@ pub fn prepare_transition_checkpoint(
         let block = source
             .replay_block(height)?
             .ok_or("Missing retained checkpoint suffix block")?;
-        validate_block(&block, &previous, height)?;
+        validate_block(&block, &previous, height, genesis.capacity)?;
         let mut transactions = Vec::with_capacity(block.transactions.len());
         for (index, hash) in block.transactions.iter().enumerate() {
             if !hashes.insert(*hash) {
@@ -110,10 +142,22 @@ pub fn prepare_transition_checkpoint(
             context: block.context.into(),
             transactions,
         };
+        let block_bytes = match limits {
+            Some(limits) => {
+                large_checkpoint_transition_block_bytes(&exported, genesis.capacity, limits)?
+            }
+            None => checkpoint_transition_block_bytes_with_capacity(&exported, genesis.capacity)?,
+        };
+        transcript_bytes = transcript_bytes
+            .checked_add(block_bytes)
+            .ok_or("Checkpoint transcript size overflow")?;
+        if limits.is_some_and(|limits| transcript_bytes > limits.transcript_bytes) {
+            return Err("Checkpoint transcript exceeds the selected schema-four bound".into());
+        }
         encoded_bytes = encoded_bytes
-            .checked_add(checkpoint_transition_block_bytes(&exported)?)
+            .checked_add(block_bytes)
             .ok_or("Checkpoint suffix size overflow")?;
-        if encoded_bytes > MAX_CHECKPOINT_WIRE_BYTES {
+        if encoded_bytes > limits.map_or(MAX_CHECKPOINT_WIRE_BYTES, |limits| limits.input_bytes) {
             return Err("Checkpoint suffix exceeds the bounded binary witness size".into());
         }
         blocks.push(exported);
@@ -122,7 +166,7 @@ pub fn prepare_transition_checkpoint(
         return Err("Checkpoint suffix differs from verified replay head or bounds".into());
     }
     let bundle = CheckpointTransitionBundle {
-        schema: 3,
+        schema: if large { 4 } else { 3 },
         rpc_profile: "development/c5-v1".into(),
         execution_engine: replay.execution_engine,
         domain,
@@ -131,7 +175,11 @@ pub fn prepare_transition_checkpoint(
         head: replay.head,
         expected_state_digest: replay.state_digest,
     };
-    let bytes = encode_checkpoint_transition(&bundle)?;
+    let bytes = if large {
+        encode_large_checkpoint_transition(&bundle)?
+    } else {
+        encode_checkpoint_transition(&bundle)?
+    };
     if bytes.len() != encoded_bytes {
         return Err("Checkpoint binary size differs from collected suffix".into());
     }
@@ -148,7 +196,7 @@ pub fn prepare_transition_checkpoint(
         })
         .collect();
     Ok(CheckpointTransitionReport {
-        schema: 3,
+        schema: bundle.schema,
         chain_id: genesis.chain_id,
         genesis_id: bundle.checkpoint.genesis_id,
         domain: bundle.domain,

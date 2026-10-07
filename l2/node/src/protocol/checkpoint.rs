@@ -1,13 +1,18 @@
 //! Canonical complete execution checkpoint, independent of database layout.
 mod codec;
+mod decode;
+mod reader;
 
-use super::{Head, validate_chain_id};
+use super::hash::{Digest, Sha256};
+use super::proof_transport::ProofLimits;
+use super::{Capacity, Head, validate_chain_id};
 use alloy_primitives::{Address, B256, U256, keccak256};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 
 pub const CHECKPOINT_SCHEMA: u32 = 1;
+/// Legacy checkpoint/proof ceiling. Expanded development runtime bounds are
+/// derived from its identity-bound Capacity; proof transport stays unchanged.
 pub const MAX_CHECKPOINT_BYTES: usize = 16 * 1024 * 1024;
 pub const MAX_CHECKPOINT_ACCOUNTS: usize = MAX_CHECKPOINT_BYTES / 105;
 pub const MAX_CHECKPOINT_SLOTS: usize = MAX_CHECKPOINT_BYTES / 64;
@@ -22,6 +27,8 @@ const DOMAIN: &[u8] = b"alephium-l2/execution-checkpoint/v1";
 pub struct ExecutionCheckpoint {
     pub schema: u32,
     pub chain_id: u64,
+    #[serde(default, skip_serializing_if = "Capacity::is_default")]
+    pub capacity: Capacity,
     pub genesis_id: B256,
     pub head: Head,
     pub accounts: Vec<CheckpointAccount>,
@@ -64,11 +71,18 @@ pub struct CheckpointBlockHash {
 
 impl ExecutionCheckpoint {
     pub fn validate(&self) -> Result<(), String> {
+        self.encoded_len().map(|_| ())
+    }
+
+    /// Validate and meter the exact canonical encoding before allocation.
+    pub fn encoded_len(&self) -> Result<usize, String> {
         validate_chain_id(self.chain_id)?;
-        if self.schema != CHECKPOINT_SCHEMA
+        self.capacity.validate()?;
+        let limit = self.capacity.runtime_checkpoint_bytes()?;
+        if self.schema != self.capacity.checkpoint_schema()
             || self.head.genesis_id != self.genesis_id
-            || self.accounts.len() > MAX_CHECKPOINT_ACCOUNTS
-            || self.codes.len() > MAX_CHECKPOINT_CODES
+            || self.accounts.len() > limit / 105
+            || self.codes.len() > limit / 36
             || self
                 .accounts
                 .windows(2)
@@ -80,16 +94,16 @@ impl ExecutionCheckpoint {
         {
             return Err("invalid checkpoint identity, count or canonical ordering".into());
         }
-        let mut size = DOMAIN.len() + 136;
+        let mut size = DOMAIN.len() + 136 + if self.capacity.is_default() { 0 } else { 24 };
         let mut slot_count = 0usize;
         let mut referenced = BTreeSet::new();
         let empty_code = keccak256([]);
         for account in &self.accounts {
-            add_size(&mut size, 105)?;
+            add_size(&mut size, 105, limit)?;
             slot_count = slot_count
                 .checked_add(account.slots.len())
                 .ok_or("checkpoint slot overflow")?;
-            if slot_count > MAX_CHECKPOINT_SLOTS
+            if slot_count > limit / 64
                 || account
                     .slots
                     .windows(2)
@@ -111,6 +125,7 @@ impl ExecutionCheckpoint {
                     .len()
                     .checked_mul(64)
                     .ok_or("checkpoint slot size overflow")?,
+                limit,
             )?;
             if !account.deleted
                 && account.code_hash != B256::ZERO
@@ -134,7 +149,7 @@ impl ExecutionCheckpoint {
             {
                 return Err("invalid checkpoint code identity or size".into());
             }
-            add_size(&mut size, 36 + code.bytes.len())?;
+            add_size(&mut size, 36 + code.bytes.len(), limit)?;
         }
         let start = self.head.height.saturating_sub(255);
         if self.block_hashes.len() as u64 != self.head.height - start + 1 {
@@ -153,19 +168,49 @@ impl ExecutionCheckpoint {
         {
             return Err("checkpoint head differs from its canonical history".into());
         }
-        add_size(&mut size, self.block_hashes.len() * 40)?;
-        Ok(())
+        add_size(&mut size, self.block_hashes.len() * 40, limit)?;
+        Ok(size)
     }
 
     /// Canonical binary transport: fixed big-endian integers, ordered records,
     /// explicit counts/lengths, strict booleans and no trailing bytes.
     pub fn encode(&self) -> Result<Vec<u8>, String> {
+        let size = self.encoded_len()?;
+        codec::encode(self, size)
+    }
+
+    /// Emit the same full canonical state, without an intermediate binary Vec.
+    /// This streams encoding only; account/code collections remain bounded full state.
+    pub fn write_encoded(
+        &self,
+        sink: &mut impl FnMut(&[u8]) -> Result<(), String>,
+    ) -> Result<(), String> {
         self.validate()?;
-        Ok(codec::encode(self))
+        codec::write(self, sink)
     }
 
     pub fn decode(bytes: &[u8]) -> Result<Self, String> {
-        codec::decode(bytes)
+        decode::from_slice(bytes, None)
+    }
+
+    pub fn capacity_from_prefix(bytes: &[u8]) -> Result<Capacity, String> {
+        decode::capacity_from_prefix(bytes)
+    }
+
+    pub fn decode_for_capacity(bytes: &[u8], expected: Capacity) -> Result<Self, String> {
+        decode::from_slice(bytes, Some(expected))
+    }
+
+    /// Decode a declared canonical payload without retaining its wire bytes.
+    /// The source must fill each requested slice exactly or return an error.
+    /// Only the declared payload is consumed; framing and physical EOF belong
+    /// to its caller. Capacity is authenticated before allocating collections.
+    pub fn read_encoded_for_capacity(
+        source: &mut impl FnMut(&mut [u8]) -> Result<(), String>,
+        total_len: usize,
+        expected: Capacity,
+    ) -> Result<Self, String> {
+        decode::read(source, total_len, Some(expected))
     }
 
     /// The guest supplies its pinned profile; settlement checks this domain and
@@ -177,26 +222,61 @@ impl ExecutionCheckpoint {
         l1_genesis: B256,
         settlement_contract: B256,
     ) -> Result<B256, String> {
+        self.capacity.ensure_proof_transport()?;
         if profile == B256::ZERO || l1_genesis == B256::ZERO || settlement_contract == B256::ZERO {
             return Err("checkpoint root requires explicit profile and settlement domain".into());
         }
-        let bytes = self.encode()?;
+        self.validate()?;
         let mut digest = Sha256::new();
         digest.update(b"alephium-l2/continuation-root/v1");
         digest.update(profile);
         digest.update([l1_network]);
         digest.update(l1_genesis);
         digest.update(settlement_contract);
-        digest.update(bytes);
+        codec::write(self, &mut |bytes| {
+            digest.update(bytes);
+            Ok(())
+        })?;
+        Ok(B256::from_slice(&digest.finalize()))
+    }
+
+    /// Schema-four root namespace binds its exact transport limits and full
+    /// canonical state. Native encoding support is not guest/proof acceptance.
+    pub fn root_for_transport(
+        &self,
+        profile: B256,
+        l1_network: u8,
+        l1_genesis: B256,
+        settlement_contract: B256,
+        limits: ProofLimits,
+    ) -> Result<B256, String> {
+        limits.validate_for_capacity(self.capacity)?;
+        if profile == B256::ZERO || l1_genesis == B256::ZERO || settlement_contract == B256::ZERO {
+            return Err("checkpoint root requires explicit profile and settlement domain".into());
+        }
+        if self.encoded_len()? > limits.checkpoint_bytes {
+            return Err("checkpoint exceeds the selected proof transport bound".into());
+        }
+        let mut digest = Sha256::new();
+        digest.update(b"alephium-l2/continuation-root/v2");
+        digest.update(profile);
+        digest.update([l1_network]);
+        digest.update(l1_genesis);
+        digest.update(settlement_contract);
+        digest.update(limits.binding_bytes()?);
+        codec::write(self, &mut |bytes| {
+            digest.update(bytes);
+            Ok(())
+        })?;
         Ok(B256::from_slice(&digest.finalize()))
     }
 }
 
-fn add_size(size: &mut usize, additional: usize) -> Result<(), String> {
+fn add_size(size: &mut usize, additional: usize, limit: usize) -> Result<(), String> {
     *size = size
         .checked_add(additional)
         .ok_or("checkpoint byte size overflow")?;
-    if *size > MAX_CHECKPOINT_BYTES {
+    if *size > limit {
         return Err("checkpoint exceeds canonical byte bound".into());
     }
     Ok(())

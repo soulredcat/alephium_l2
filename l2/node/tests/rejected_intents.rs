@@ -20,6 +20,10 @@ fn resolve(data: &Path, genesis: &Genesis) -> service::NodeHandle {
         genesis: genesis.clone(),
         min_gas_price: 0,
         max_checkpoint_bytes: operator::MAX_CONTINUATION_CHECKPOINT_BYTES,
+        rpc: Default::default(),
+        verification_workers_per_cpu: 1,
+        verification_backend: alephium_l2_node::config::VerificationBackend::Cpu,
+        gpu_device: 0,
     };
     let runtime = tokio::runtime::Runtime::new().unwrap();
     let (node, worker) = service::start(&config).unwrap();

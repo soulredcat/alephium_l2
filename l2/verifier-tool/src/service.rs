@@ -13,7 +13,7 @@ use std::{path::Path, time::Instant};
 pub fn execute(
     jar: &Path,
     evidence: &Path,
-    deadline: Instant,
+    deadline: Option<Instant>,
     suite: Suite,
     report: &mut Value,
     actual: Option<&actual_receipt::Input>,

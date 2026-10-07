@@ -1,9 +1,9 @@
-use super::{MAX_BATCH, RpcState, json_content, request, respond, single, state};
+use super::{RpcState, json_content, request, respond, single, state};
 use crate::{config::Config, development, execution, operator, service};
 use axum::{
     body::{Bytes, to_bytes},
-    extract::State,
-    http::{HeaderMap, HeaderValue, StatusCode, header::CONTENT_TYPE},
+    extract::{FromRequestParts, State},
+    http::{HeaderMap, HeaderValue, Request, StatusCode, header::CONTENT_TYPE},
 };
 use serde_json::{Value, json};
 
@@ -24,15 +24,38 @@ async fn batches_and_parse_errors_follow_json_rpc() {
         genesis: development::genesis(),
         min_gas_price: 0,
         max_checkpoint_bytes: operator::MAX_CONTINUATION_CHECKPOINT_BYTES,
+        rpc: Default::default(),
+        verification_workers_per_cpu: 1,
+        verification_backend: crate::config::VerificationBackend::Cpu,
+        gpu_device: 0,
     };
     let (node, worker) = service::start(&config).unwrap();
     let rpc = state(node.clone());
     assert_eq!(send(&rpc, "{").await["error"]["code"], -32700);
     assert_eq!(send(&rpc, "[]").await["error"]["code"], -32600);
-    let oversized = Value::Array(vec![call(json!(1), "eth_chainId"); MAX_BATCH + 1]);
+    let oversized = Value::Array(vec![
+        call(json!(1), "eth_chainId");
+        rpc.limits.batch_calls + 1
+    ]);
     assert_eq!(
         send(&rpc, &oversized.to_string()).await["error"]["code"],
         -32600
+    );
+    let mut smaller = rpc.clone();
+    smaller.limits.batch_calls = 1;
+    let two = json!([call(json!(1), "eth_chainId"), call(json!(2), "eth_chainId")]);
+    assert_eq!(
+        send(&smaller, &two.to_string()).await["error"]["code"],
+        -32600
+    );
+    smaller.limits.batch_calls = 2;
+    assert_eq!(
+        send(&smaller, &two.to_string())
+            .await
+            .as_array()
+            .unwrap()
+            .len(),
+        2
     );
 
     let single_response = send(&rpc, &call(json!(7), "eth_chainId").to_string()).await;
@@ -83,7 +106,17 @@ async fn batches_and_parse_errors_follow_json_rpc() {
     for input in [notification.clone(), json!([notification, unknown])] {
         let mut headers = HeaderMap::new();
         headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
-        let response = request(State(rpc.clone()), headers, Bytes::from(input.to_string())).await;
+        let (mut parts, _) = Request::new(()).into_parts();
+        let slot = super::ingress::RequestSlot::from_request_parts(&mut parts, &rpc)
+            .await
+            .unwrap();
+        let response = request(
+            State(rpc.clone()),
+            slot,
+            headers,
+            Bytes::from(input.to_string()),
+        )
+        .await;
         assert_eq!(response.status(), StatusCode::NO_CONTENT);
         assert!(
             to_bytes(response.into_body(), 1024)

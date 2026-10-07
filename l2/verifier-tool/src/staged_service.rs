@@ -18,7 +18,7 @@ pub fn execute(node: &ReadOnlyNode, compiled: &Compiled, report: &mut Value) -> 
     });
     let [begin, advance, finish, acceptance] = methods;
     let (begin, advance, finish, acceptance) = (begin?, advance?, finish?, acceptance?);
-    if compiled.public_methods.len() != 4 {
+    if compiled.public_methods.len() != 5 {
         return Err("Staged contract has an unexpected public entry point".into());
     }
     let fixture = Fixture::load()?;
@@ -28,6 +28,8 @@ pub fn execute(node: &ReadOnlyNode, compiled: &Compiled, report: &mut Value) -> 
         "fixtureAddress": fixture.address,
         "statementIdentityDomain": "ALPH/L2/stagedreceipt/v1",
         "statementIdentityPreimageBytes": 188,
+        "expectedPayloadId": fixture.payload_id, "payloadDomain": "ALPH/L2/stagedpayload/v1",
+        "payloadPreimageBytes": 156,
         "stateSource": "last fully checked successful VM ContractState.mutFields only",
         "maximumRequests": MAX_REQUESTS, "advanceDigitBound": 8,
         "mutableU256Words": MUTABLE_WORDS, "mutableByteVecBytes": 32,
@@ -44,7 +46,7 @@ pub fn execute(node: &ReadOnlyNode, compiled: &Compiled, report: &mut Value) -> 
     let id = &fixture.statement_id;
     let zero_id = "00".repeat(32);
     let mut parameter_request = run.request(begin, fixture.begin_args.clone(), &fields);
-    parameter_request["initialImmFields"] = json!([word("0")]);
+    parameter_request["initialImmFields"][0] = word("0");
     run.reject_request("wrong-modulus-begin", parameter_request, &fields, 1002)?;
     run.report["parameterBinding"] = json!({"passed": true, "wrongModulus": "0",
         "expectedAssertionCode": 1002, "beforeArithmeticRequired": true, "requests": 1});
@@ -62,13 +64,11 @@ pub fn execute(node: &ReadOnlyNode, compiled: &Compiled, report: &mut Value) -> 
         &fields,
         1500,
     )?;
-    run.reject(
-        "zero-root-begin",
-        begin,
-        fixture.zero_witness_args()?,
-        &fields,
-        1432,
-    )?;
+    let zero_args = fixture.zero_witness_args()?;
+    let zero_fixture = Fixture::from_args(&fixture.contract_id, &zero_args)?;
+    let mut zero_request = run.request(begin, zero_args, &fields);
+    zero_request["initialImmFields"] = json!(zero_fixture.immutable_fields());
+    run.reject_request("zero-root-begin", zero_request, &fields, 1432)?;
     fields = run.success(
         "official-begin",
         begin,
@@ -189,7 +189,14 @@ pub fn execute(node: &ReadOnlyNode, compiled: &Compiled, report: &mut Value) -> 
     run.report["stagedLifecycle"]["officialVmGasMax"] = json!(official_gas.iter().max());
     // A new isolated synthetic instance with the same fixture address is used.
     // The changed image is independently invalid, yet structurally admitted.
-    let bad_id = &fixture.wrong_image_id;
+    let bad_fixture = Fixture::from_args(&fixture.contract_id, &fixture.wrong_image_args)?;
+    run.report["stagedLifecycle"]["wrongImageImmutablePayloadId"] = json!(bad_fixture.payload_id);
+    run.report["stagedLifecycle"]["wrongImageOrigin"] =
+        json!("isolated synthetic instance deliberately bound to the false claim");
+    let bad_id = &bad_fixture.statement_id;
+    let official_records = run.records.clone();
+    let mut run = Run::new(node, compiled, &bad_fixture, run.report);
+    run.records = official_records;
     fields = run.success(
         "wrong-image-begin",
         begin,
@@ -265,25 +272,25 @@ pub(crate) fn execute_canonical_fixture(
     initial_contract_state: &Value,
     reject_journal: bool,
 ) -> Result<Value, String> {
-    let (id, args, label) = if reject_journal {
-        (
-            &fixture.wrong_journal_id,
-            &fixture.wrong_journal_args,
-            "wrong-journal",
-        )
+    let false_claim = reject_journal
+        .then(|| Fixture::from_args(&fixture.contract_id, &fixture.wrong_journal_args))
+        .transpose()?;
+    let bound_fixture = false_claim.as_ref().unwrap_or(fixture);
+    let label = if reject_journal {
+        "wrong-journal"
     } else {
-        (&fixture.statement_id, &fixture.begin_args, "canonical")
+        "canonical"
     };
     crate::staged_canonical::execute(
         node,
         compiled,
         report,
-        fixture,
+        bound_fixture,
         initial_contract_state,
         crate::staged_canonical::Claim {
             label,
-            id,
-            args,
+            id: &bound_fixture.statement_id,
+            args: &bound_fixture.begin_args,
             reject: reject_journal,
             check_order: false,
         },

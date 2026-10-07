@@ -1,15 +1,19 @@
 use super::{
     Store,
     block::{self, StoredChange},
-    encoding::{Decoder, Encoder, key, slot_key},
+    encoding::{Decoder, key, slot_key},
     records,
 };
-use crate::protocol::{
-    Account, BlockCommit, MAX_PENDING, MAX_TRANSACTION_BYTES, Pending, TransactionStatus,
-};
-use alloy_primitives::{B256, keccak256};
+use crate::protocol::{Account, BlockCommit, Pending, TransactionStatus};
+use alloy_primitives::B256;
 use fjall::Readable;
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    time::Instant,
+};
+
+#[path = "admission.rs"]
+mod admission;
 
 impl Store {
     pub fn pending(&self) -> Result<Vec<Pending>, String> {
@@ -27,7 +31,7 @@ impl Store {
         let mut senders = BTreeSet::new();
         for item in view.snapshot.prefix(&view.items, [0x23]) {
             let (key, value) = item.into_inner().map_err(super::engine_error)?;
-            if key.len() != 9 || pending.len() >= MAX_PENDING {
+            if key.len() != 9 || pending.len() >= self.capacity().max_pending {
                 return Err("invalid durable pending queue".into());
             }
             let ordinal = u64::from_be_bytes(key[1..].try_into().unwrap());
@@ -50,55 +54,6 @@ impl Store {
         Ok(pending)
     }
 
-    pub fn admit(&mut self, pending: Pending) -> Result<TransactionStatus, String> {
-        self.check()?;
-        if pending.raw.is_empty()
-            || pending.raw.len() > MAX_TRANSACTION_BYTES
-            || keccak256(&pending.raw) != pending.hash
-        {
-            return Err("invalid pending transaction identity or size".into());
-        }
-        let view = self.view()?;
-        if let Some(existing) = view.status(pending.hash)? {
-            if view.raw_transaction(pending.hash)?.as_deref() != Some(pending.raw.as_slice()) {
-                return Err("conflicting canonical transaction identity".into());
-            }
-            return Ok(existing);
-        }
-        let queue = self.pending_records()?;
-        if queue.len() >= MAX_PENDING || queue.iter().any(|(_, item)| item.sender == pending.sender)
-        {
-            return Err("pending capacity or sender reservation exceeded".into());
-        }
-        let counter = view.get([0x03])?.ok_or("missing pending ordinal")?;
-        if counter.len() != 8 {
-            return Err("malformed pending ordinal".into());
-        }
-        let ordinal = u64::from_be_bytes(counter.try_into().unwrap())
-            .checked_add(1)
-            .ok_or("pending ordinal exhausted")?;
-        let mut record = Encoder::default();
-        record.hash(pending.hash);
-        record.address(pending.sender);
-        let status = TransactionStatus {
-            hash: pending.hash,
-            status: "durably_accepted".into(),
-            block_height: None,
-            error: None,
-        };
-        let mut batch = self.batch()?;
-        batch.insert(&self.items, key(0x20, pending.hash.as_slice()), pending.raw);
-        batch.insert(
-            &self.items,
-            key(0x21, pending.hash.as_slice()),
-            records::encode_status(&status)?,
-        );
-        batch.insert(&self.items, key(0x23, &ordinal.to_be_bytes()), record.0);
-        batch.insert(&self.items, vec![0x03], ordinal.to_be_bytes().to_vec());
-        self.finish(batch)?;
-        Ok(status)
-    }
-
     pub fn commit(&mut self, commit: BlockCommit) -> Result<super::ReadView, String> {
         self.commit_checked(commit, false)?
             .map_err(|_| "unenforced checkpoint capacity refused a commit".into())
@@ -108,6 +63,11 @@ impl Store {
     /// `commit_bounded`, any block whose checkpoint plus remaining hash-window
     /// growth exceeds `limit`.
     pub fn enable_capacity(&mut self, limit: usize) -> Result<(), String> {
+        if limit == 0 || limit > self.capacity().producer_checkpoint_bytes()? {
+            return Err(
+                "Checkpoint producer limit exceeds the pinned development capacity profile".into(),
+            );
+        }
         self.capacity = Some(super::capacity::Capacity::scan(&self.view()?, limit)?);
         Ok(())
     }
@@ -125,6 +85,7 @@ impl Store {
         &mut self,
         commit: BlockCommit,
     ) -> Result<Result<super::ReadView, super::CapacityExceeded>, String> {
+        self.last_commit_phases = None;
         if self.capacity.is_none() {
             return Err("checkpoint capacity tracking is not enabled".into());
         }
@@ -136,11 +97,14 @@ impl Store {
         mut commit: BlockCommit,
         enforce: bool,
     ) -> Result<Result<super::ReadView, super::CapacityExceeded>, String> {
+        self.last_commit_phases = None;
+        let mut phases = super::CommitPhaseTimings::default();
+        let mut phase_started = Instant::now();
         self.check()?;
         if self.latest_head()? != commit.parent {
             return Err("commit parent is stale".into());
         }
-        block::validate(&commit)?;
+        block::validate_with_capacity(&commit, self.capacity())?;
         let view = self.view()?;
         let pending: BTreeMap<_, _> = self
             .pending_records()?
@@ -161,13 +125,16 @@ impl Store {
                 return Err("receipt sender differs from durable intent".into());
             }
         }
-        block::logical_bytes(
+        block::logical_bytes_with_capacity(
             &commit,
             commit
                 .transactions
                 .iter()
                 .map(|hash| pending[hash].1.raw.as_slice()),
+            self.capacity(),
         )?;
+        phases.validation_pending = phase_started.elapsed();
+        phase_started = Instant::now();
         commit.changes.sort_by_key(|change| change.address);
         let new_codes: BTreeMap<_, _> = commit
             .changes
@@ -178,10 +145,12 @@ impl Store {
             records::verify_code(*hash, code)?;
         }
         let mut changes = Vec::with_capacity(commit.changes.len());
+        let mut prior = super::capacity::PriorAccounts::new(&view, commit.changes.len());
         for mut change in commit.changes.iter().cloned() {
             change.slots.sort_by_key(|(slot, _)| *slot);
-            let mut epoch = view
-                .account_record(change.address)?
+            let mut epoch = prior
+                .load(change.address)?
+                .as_ref()
                 .map_or(0, |(account, _)| account.storage_epoch);
             if change.storage_reset || change.deleted {
                 epoch = epoch.checked_add(1).ok_or("storage epoch exhausted")?;
@@ -198,10 +167,14 @@ impl Store {
             }
             changes.push(StoredChange { change, epoch });
         }
-        let (head, record) = block::encode(&commit, &changes)?;
+        phases.prior_normalization = phase_started.elapsed();
+        phase_started = Instant::now();
+        let (head, record) = block::encode_with_capacity(&commit, &changes, self.capacity())?;
+        phases.encoding_hash = phase_started.elapsed();
+        phase_started = Instant::now();
         let capacity = match &self.capacity {
             Some(capacity) => {
-                let next = capacity.after(&view, &changes, head.height)?;
+                let next = capacity.after(&view, &changes, &prior, head.height)?;
                 if enforce && next.required_bytes() > capacity.limit() {
                     return Ok(Err(super::CapacityExceeded));
                 }
@@ -209,6 +182,9 @@ impl Store {
             }
             None => None,
         };
+        drop(prior);
+        phases.checkpoint_capacity = phase_started.elapsed();
+        phase_started = Instant::now();
         let mut batch = self.batch()?;
         for stored in &changes {
             let change = &stored.change;
@@ -291,10 +267,17 @@ impl Store {
             head.height.to_be_bytes().to_vec(),
         );
         batch.insert(&self.items, vec![0x02], records::encode_head(&head));
+        phases.batch_build = phase_started.elapsed();
+        phase_started = Instant::now();
         self.finish(batch)?;
+        phases.sync_all_commit = phase_started.elapsed();
+        phase_started = Instant::now();
         if let (Some(capacity), Some(next)) = (self.capacity.as_mut(), capacity) {
             capacity.apply(next);
         }
-        Ok(Ok(self.view()?))
+        let published = self.view()?;
+        phases.publish_view = phase_started.elapsed();
+        self.last_commit_phases = Some(phases);
+        Ok(Ok(published))
     }
 }

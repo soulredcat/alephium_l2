@@ -17,7 +17,7 @@ use std::{
 
 const MAX_INPUT_BYTES: u64 = 1_048_576;
 const SELECTOR: [u8; 4] = [0x73, 0xc4, 0x57, 0xba];
-pub(crate) const MAX_REQUESTS: usize = 59;
+pub(crate) const MAX_REQUESTS: usize = 69;
 
 /// These pins are selected from the independently reviewed ProgramBinary and replayed
 /// canonical transition. The private receipt report cannot choose either pin.
@@ -171,7 +171,7 @@ fn load(input: &Input, child_id: &[u8; 32]) -> Result<Prepared, String> {
     let mut changed_encoded = encoded.clone();
     changed_encoded[0] = hex::encode(&changed_receipt.seal);
     let changed_proof = staged_cases::Fixture::from_encoded(child_id, &changed_encoded)?;
-    let evidence = json!({
+    let mut evidence = json!({
         "scope": "actual SDK Groth16 receipt; pinned-key independent oracle and synthetic target",
         "sealBytes": receipt.seal.len(), "sealSha256": hex::encode(hash(&receipt.seal)),
         "imageIdBytes": 32, "imageIdSha256": hex::encode(hash(&image)),
@@ -197,6 +197,14 @@ fn load(input: &Input, child_id: &[u8; 32]) -> Result<Prepared, String> {
         "realDeploymentProven": false, "persistentChainContinuityProven": false,
         "settlementAccepted": false
     });
+    // Keep the existing flat report schema without expanding one json! object
+    // beyond the macro's recursion budget as boundary evidence grows.
+    evidence["syntheticFactoryImmutablePolicyPinsPayload"] = json!(true);
+    evidence["expectedPayloadReadFromHostReport"] = json!(false);
+    evidence["expectedPayloadId"] = json!(fixture.payload_id);
+    evidence["payloadDomain"] = json!("ALPH/L2/stagedpayload/v1");
+    evidence["payloadPreimageBytes"] = json!(156);
+    evidence["payloadDerivedFromPinnedClaimAndIndependentlyVerifiedSeal"] = json!(true);
     Ok(Prepared {
         fixture,
         changed_proof,

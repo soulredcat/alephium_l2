@@ -16,39 +16,54 @@ mod batch_tests;
 mod block;
 mod call;
 #[cfg(test)]
+mod capacity_tests;
+#[cfg(test)]
 mod compat_tests;
 mod estimate;
 mod fee_history;
+mod ingress;
+mod limits;
 mod logs;
 mod read;
 mod receipt;
 mod transaction;
 
+pub use limits::RpcLimits;
+
 #[derive(Clone)]
 struct RpcState {
     node: NodeHandle,
+    requests: Arc<Semaphore>,
     reads: Arc<Semaphore>,
     simulations: Arc<Semaphore>,
+    limits: RpcLimits,
 }
-
-/// Common client libraries batch by default (ethers v6 up to 100 calls).
-const MAX_BATCH: usize = 100;
-/// Later batch members fail once responses exceed this; one member is <= BLOCK_BYTES.
-const MAX_BATCH_RESPONSE_BYTES: usize = 4 * BLOCK_BYTES;
 
 pub fn router(node: NodeHandle) -> Router {
-    Router::new()
-        .route("/health", get(health))
-        .route("/", post(request))
-        .layer(DefaultBodyLimit::max(BLOCK_BYTES))
-        .with_state(state(node))
+    router_with_limits(node, RpcLimits::default()).expect("Default RPC limits are valid")
 }
 
+pub fn router_with_limits(node: NodeHandle, limits: RpcLimits) -> Result<Router, String> {
+    limits.validate()?;
+    Ok(Router::new()
+        .route("/health", get(health))
+        .route("/", post(request))
+        .layer(DefaultBodyLimit::max(limits.request_bytes))
+        .with_state(state_with_limits(node, limits)))
+}
+
+#[cfg(test)]
 fn state(node: NodeHandle) -> RpcState {
+    state_with_limits(node, RpcLimits::default())
+}
+
+fn state_with_limits(node: NodeHandle, limits: RpcLimits) -> RpcState {
     RpcState {
         node,
-        reads: Arc::new(Semaphore::new(32)),
-        simulations: Arc::new(Semaphore::new(4)),
+        requests: Arc::new(Semaphore::new(limits.request_inflight)),
+        reads: Arc::new(Semaphore::new(limits.read_inflight)),
+        simulations: Arc::new(Semaphore::new(limits.simulation_inflight)),
+        limits,
     }
 }
 
@@ -64,12 +79,24 @@ async fn health(State(state): State<RpcState>) -> Json<Value> {
         "pending":state.node.pending_count(),"settlement":"unimplemented","error":failure,
         "rpc_profile":"development/c5-v1","transaction_types":["0x0","0x2"],"base_fee":"0x0",
         "min_gas_price":format!("0x{:x}", state.node.min_gas_price()),
+        "available_logical_cpus":state.node.available_cpus(),
+        "hardware_verification_budget":state.node.hardware_verification_budget(),
+        "verification_workers_per_cpu":state.node.workers_per_cpu(),
+        "verification_workers":state.node.verification_workers(),
+        "gpu":state.node.gpu_metrics(),
         "checkpoint_bytes":state.node.checkpoint_capacity().0,
-        "checkpoint_limit":state.node.checkpoint_capacity().1}),
+        "checkpoint_limit":state.node.checkpoint_capacity().1,
+        "capacity":view.as_ref().map(|view| view.capacity()),
+        "rpc_limits":state.limits}),
     )
 }
 
-async fn request(State(state): State<RpcState>, headers: HeaderMap, body: Bytes) -> Response {
+async fn request(
+    State(state): State<RpcState>,
+    _slot: ingress::RequestSlot,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
     // Same media types the previous JSON extractor accepted.
     if !json_content(&headers) {
         return StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response();
@@ -101,13 +128,13 @@ async fn respond(state: RpcState, body: &[u8]) -> Option<Value> {
     let Value::Array(calls) = input else {
         return single(state, input, false).await;
     };
-    if calls.is_empty() || calls.len() > MAX_BATCH {
+    if calls.is_empty() || calls.len() > state.limits.batch_calls {
         return Some(error(Value::Null, -32600, "Invalid request"));
     }
     let mut responses = Vec::with_capacity(calls.len());
     let mut bytes = 0usize;
     for call in calls {
-        let Some(response) = single(state.clone(), call, bytes > MAX_BATCH_RESPONSE_BYTES).await
+        let Some(response) = single(state.clone(), call, bytes > state.limits.response_bytes).await
         else {
             continue;
         };
@@ -138,7 +165,7 @@ async fn single(state: RpcState, input: Value, response_limit_reached: bool) -> 
         return Some(error(id, -32600, "Invalid request"));
     }
     // Notifications still execute, including after the response budget is used;
-    // they never contribute a response. MAX_BATCH bounds their work count too.
+    // they never contribute a response. The configured batch count bounds work.
     let result = if response_limit_reached && id.is_some() {
         Err(RpcError::from("Batch response exceeds bound".to_string()))
     } else {

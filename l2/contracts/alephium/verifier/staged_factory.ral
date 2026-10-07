@@ -7,7 +7,7 @@
 // Live creation requires separate signing/deployment/funding authorization.
 
 Contract Risc0StagedReceiptFactory(templateContractId: ByteVec,
-    expectedTemplateCodeHash: ByteVec, fpModulus: U256) {
+    expectedTemplateCodeHash: ByteVec, fpModulus: U256, expectedPayloadId: ByteVec) {
     const EXPECTED_FP_MODULUS = 21888242871839275222246405745257275088696311157297823662689037894645226208583
     const CHILD_PATH = #7631
     const ZERO_STATEMENT = #0000000000000000000000000000000000000000000000000000000000000000
@@ -22,6 +22,7 @@ Contract Risc0StagedReceiptFactory(templateContractId: ByteVec,
         assert!(fpModulus == EXPECTED_FP_MODULUS, FACTORY_INVALID_PARAMETERS)
         assert!(size!(templateContractId) == 32, FACTORY_INVALID_PARAMETERS)
         assert!(size!(expectedTemplateCodeHash) == 32, FACTORY_INVALID_PARAMETERS)
+        assert!(size!(expectedPayloadId) == 32, FACTORY_INVALID_PARAMETERS)
     }
 
     // This factory alone chooses every child field. A caller supplies funding,
@@ -36,10 +37,11 @@ Contract Risc0StagedReceiptFactory(templateContractId: ByteVec,
         let zero18 = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
         let zero12 = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
         let zero6 = [0, 0, 0, 0, 0, 0]
-        // One immutable prime; mutable order is status/cursor (2), pairs (18),
+        // Immutable prime and intended payload; mutable order is status/cursor (2), pairs (18),
         // points (18), inverse/root/accumulator (3*12), correction (6), id (32B).
         let (initialImmFields, initialMutFields) = Risc0StagedReceiptVerifier.encodeFields!(
-            fpModulus, 0, 0, zero18, zero18, zero12, zero12, zero12, zero6, ZERO_STATEMENT)
+            fpModulus, expectedPayloadId, 0, 0, zero18, zero18,
+            zero12, zero12, zero12, zero6, ZERO_STATEMENT)
         let childId = copyCreateSubContract!{callerAddress!() -> ALPH: minimalContractDeposit!()}(
             CHILD_PATH, templateContractId, initialImmFields, initialMutFields)
         assert!(childId == expectedChild, FACTORY_INVALID_PARAMETERS)
@@ -54,6 +56,9 @@ Contract Risc0StagedReceiptFactory(templateContractId: ByteVec,
         let childId = subContractId!(CHILD_PATH)
         assert!(contractExists!(childId), FACTORY_CHILD_MISSING)
         assert!(contractCodeHash!(childId) == expectedTemplateCodeHash, FACTORY_WRONG_CODE)
+        let (childModulus, childPayloadId) = Risc0StagedReceiptVerifier(childId).getBinding()
+        assert!(childModulus == fpModulus && childPayloadId == expectedPayloadId,
+            FACTORY_WRONG_STATEMENT)
         let (phase, statement) = Risc0StagedReceiptVerifier(childId).getAcceptance()
         assert!(phase == 3, FACTORY_NOT_ACCEPTED)
         assert!(statement == expectedStatement, FACTORY_WRONG_STATEMENT)

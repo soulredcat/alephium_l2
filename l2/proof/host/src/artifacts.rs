@@ -2,7 +2,9 @@
 
 use crate::{
     HostResult, cli,
-    prover::{SESSION_LIMIT_CYCLES, VERIFIER_PARAMETERS, VerifiedProof},
+    prover::{SEGMENT_LIMIT_PO2, VERIFIER_PARAMETERS, VerifiedProof},
+    resources::{ResourcePolicy, WorkerGuard},
+    transition_input::TransitionInput,
 };
 use alephium_l2_transition_core::ProvenTransition;
 use serde::Serialize;
@@ -44,11 +46,16 @@ impl ArtifactDirectory {
 
     pub fn persist(
         &self,
-        input: &[u8],
+        input: &TransitionInput,
         program: &[u8],
         journal: &ProvenTransition,
         proof: &VerifiedProof,
+        resources: &ResourcePolicy,
+        worker: &WorkerGuard,
     ) -> HostResult<PathBuf> {
+        if proof.max_cycles != resources.max_cycles {
+            return Err("Proof report resource policy differs from the executed session budget.");
+        }
         let receipt_json = serde_json::to_vec(&proof.receipt)
             .map_err(|_| "Cannot serialize the actual verified receipt privately.")?;
         let statement_json = serde_json::to_vec_pretty(journal)
@@ -112,8 +119,12 @@ impl ArtifactDirectory {
             settlement_verified: false,
             general_evm_transition_claim: false,
             canonical_factory_acceptance_claim: false,
-            input_bytes: input.len(),
-            input_sha256: sha(input),
+            input_bytes: input.length,
+            input_sha256: hex::encode(input.digest()?),
+            input_wire_schema: input.schema,
+            input_byte_limit: input.byte_limit,
+            input_transport: "checked-file/streaming-stdin; decoded-full-state-resident",
+            prover_backend: &proof.backend,
             guest_format: "risc0-ProgramBinary-v1",
             program_bytes: program.len(),
             program_sha256: sha(program),
@@ -133,7 +144,14 @@ impl ArtifactDirectory {
             segments: proof.stats.segments,
             total_cycles: proof.stats.total_cycles,
             user_cycles: proof.stats.user_cycles,
-            session_limit_cycles: SESSION_LIMIT_CYCLES,
+            session_limit_cycles: proof.max_cycles,
+            segment_limit_po2: SEGMENT_LIMIT_PO2,
+            rayon_workers: resources.workers,
+            available_logical_cpus: resources.available_logical_cpus,
+            rayon_worker_ceiling: resources.worker_ceiling,
+            concurrent_proof_jobs_per_prover_install: 1,
+            worker_lock_access_policy: worker.access_policy.clone(),
+            resource_limit_scope: "Rayon-parallelism-and-segment-working-set; no-hard-RSS-or-Docker-CPU-limit",
             checkpoint_transport: checkpoint.as_ref().map(|bytes| CheckpointTransportReport {
                 format: "alephium-l2/execution-checkpoint/v1",
                 bytes: bytes.len(),
@@ -260,6 +278,10 @@ struct ProofReport<'a> {
     canonical_factory_acceptance_claim: bool,
     input_bytes: usize,
     input_sha256: String,
+    input_wire_schema: u32,
+    input_byte_limit: usize,
+    input_transport: &'static str,
+    prover_backend: &'a crate::backend::BackendEvidence,
     guest_format: &'static str,
     program_bytes: usize,
     program_sha256: String,
@@ -280,6 +302,13 @@ struct ProofReport<'a> {
     total_cycles: u64,
     user_cycles: u64,
     session_limit_cycles: u64,
+    segment_limit_po2: u32,
+    rayon_workers: usize,
+    available_logical_cpus: usize,
+    rayon_worker_ceiling: usize,
+    concurrent_proof_jobs_per_prover_install: usize,
+    worker_lock_access_policy: String,
+    resource_limit_scope: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     checkpoint_transport: Option<CheckpointTransportReport>,
     artifact_access_policy: String,

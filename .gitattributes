@@ -5,3 +5,7 @@ l2/verifier-tool/fixtures/** -text
 l2/contracts/alephium/verifier/** -text
 # The verifier certifies this producer source by an exact source hash.
 l2/verifier-tool/src/ordinary_miller.rs -text
+# GPU vendor provenance and prover policy bind exact source/patch bytes.
+# Preserve upstream CRLF and unified-diff context whitespace without rewriting pins.
+l2/gpu/vendor/** -text -whitespace
+l2/proof/patches/*.patch -text -whitespace

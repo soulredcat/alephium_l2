@@ -70,6 +70,7 @@ impl Signer {
 
 fn open(directory: &tempfile::TempDir, limit: usize) -> Store {
     let mut store = Store::open(&directory.path().join("data"), &development::genesis()).unwrap();
+    let limit = limit.min(store.capacity().producer_checkpoint_bytes().unwrap());
     store.enable_capacity(limit).unwrap();
     store
 }
@@ -182,6 +183,7 @@ fn a_block_over_the_bound_is_refused_without_writing() {
     let mut signer = Signer(0);
     let recipient = Address::repeat_byte(0x73);
     block(&mut store, signer.next(Some(recipient), 1, vec![])).unwrap();
+    assert!(store.last_commit_phases().is_some());
     let used = exact(&store);
     drop(store);
     // Reserve every remaining hash entry, leaving less than a new account.
@@ -191,6 +193,7 @@ fn a_block_over_the_bound_is_refused_without_writing() {
     let fresh = signer.next(Some(Address::repeat_byte(0x74)), 1, vec![]);
     let hash = execution::inspect(&fresh).unwrap().hash;
     assert_eq!(block(&mut store, fresh), Err(CapacityExceeded));
+    assert!(store.last_commit_phases().is_none());
     assert_eq!(store.view().unwrap().head, head);
     assert_eq!(store.checkpoint_capacity(), Some((used, limit)));
     assert_eq!(store.pending().unwrap().len(), 1);

@@ -1,0 +1,12 @@
+diff --git a/risc0/zkvm/src/host/api/server.rs b/risc0/zkvm/src/host/api/server.rs
+--- a/risc0/zkvm/src/host/api/server.rs
++++ b/risc0/zkvm/src/host/api/server.rs
+@@ -424,7 +424,7 @@ impl Server {
+ 
+         let msg = inner(&mut conn, request).unwrap_or_else(|err| pb::api::ServerReply {
+             kind: Some(pb::api::server_reply::Kind::Error(pb::api::GenericError {
+-                reason: err.to_string(),
++                reason: format!("{err:#}"),
+             })),
+         });
+ 

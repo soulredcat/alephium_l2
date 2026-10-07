@@ -13,6 +13,7 @@ pub fn validate(artifact: &Value, suite: Suite) -> Result<BTreeMap<String, usize
         (
             json!([
                 "fpModulus",
+                "expectedPayloadId",
                 "stateStatus",
                 "stateCursor",
                 "statePairs",
@@ -25,6 +26,7 @@ pub fn validate(artifact: &Value, suite: Suite) -> Result<BTreeMap<String, usize
             ]),
             json!([
                 "U256",
+                "ByteVec",
                 "U256",
                 "U256",
                 "[U256;18]",
@@ -35,17 +37,20 @@ pub fn validate(artifact: &Value, suite: Suite) -> Result<BTreeMap<String, usize
                 "[U256;6]",
                 "ByteVec"
             ]),
-            json!([false, true, true, true, true, true, true, true, true, true]),
+            json!([
+                false, false, true, true, true, true, true, true, true, true, true
+            ]),
         )
     } else if factory {
         (
             json!([
                 "templateContractId",
                 "expectedTemplateCodeHash",
-                "fpModulus"
+                "fpModulus",
+                "expectedPayloadId"
             ]),
-            json!(["ByteVec", "ByteVec", "U256"]),
-            json!([false, false, false]),
+            json!(["ByteVec", "ByteVec", "U256", "ByteVec"]),
+            json!([false, false, false, false]),
         )
     } else {
         (json!(["fpModulus"]), json!(["U256"]), json!([false]))
@@ -89,6 +94,7 @@ pub fn validate(artifact: &Value, suite: Suite) -> Result<BTreeMap<String, usize
                 vec!["U256", "ByteVec"],
                 false,
             ),
+            ("getBinding", vec![], vec![], vec!["U256", "ByteVec"], false),
         ]
     } else if factory {
         vec![

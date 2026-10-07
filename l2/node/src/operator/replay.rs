@@ -2,7 +2,7 @@ use super::{backup::materialize_backup, files, types::ReplayReport};
 use crate::protocol::checkpoint::ExecutionCheckpoint;
 use crate::{
     execution,
-    protocol::{BLOCK_GAS, BlockCommit, Genesis, Head, MAX_PENDING, Pending, ReplayBlock},
+    protocol::{BlockCommit, Genesis, Head, Pending, ReplayBlock},
     storage::{ReadView, Store},
 };
 use alloy_primitives::B256;
@@ -116,9 +116,7 @@ fn replay_with_checkpoint(
 
     // Restore unresolved intents after execution. Admission ordinals may differ
     // because original interleaving is unavailable; queue order and identity must not.
-    for intent in &pending {
-        admit(&mut target, intent.clone())?;
-    }
+    admit_group(&mut target, &pending)?;
     verify_result(
         &source_view,
         &target,
@@ -166,14 +164,27 @@ fn replay_block(
         ));
     }
     let mut inputs = Vec::with_capacity(expected.transactions.len());
+    let count = expected
+        .transactions
+        .len()
+        .checked_add(expected.rejected.len())
+        .ok_or("Replay intent count overflow")?;
+    if count > target.capacity().max_pending {
+        return Err("Replay block intent count exceeds pinned profile".into());
+    }
+    let mut intents = Vec::with_capacity(count);
     for hash in &expected.transactions {
         let intent = load_intent(source, *hash)?;
         inputs.push(intent.raw.clone());
-        admit(target, intent)?;
+        intents.push(intent);
     }
     for (hash, _) in &expected.rejected {
-        admit(target, load_intent(source, *hash)?)?;
+        intents.push(load_intent(source, *hash)?);
     }
+    // All signed identities are checked before this single existing SyncAll
+    // group admission. Avoid rebuilding the pending queue once per envelope.
+    admit_group(target, &intents)?;
+    drop(intents);
     let result = execution::execute_block(target.view()?, &inputs, expected.context)?;
     if !result.rejected.is_empty() || result.receipts.len() != expected.receipts.len() {
         return Err(format!(
@@ -241,20 +252,29 @@ fn load_intent(source: &ReadView, hash: B256) -> Result<Pending, String> {
 }
 
 fn admit(target: &mut Store, intent: Pending) -> Result<(), String> {
-    let hash = intent.hash;
-    let status = target.admit(intent)?;
-    if status.hash != hash
-        || status.status != "durably_accepted"
-        || status.block_height.is_some()
-        || status.error.is_some()
-    {
-        return Err("Replay intent was previously resolved".into());
+    admit_group(target, std::slice::from_ref(&intent))
+}
+
+fn admit_group(target: &mut Store, intents: &[Pending]) -> Result<(), String> {
+    let statuses = target.admit_batch(intents)?;
+    if statuses.len() != intents.len() {
+        return Err("Replay admission status count differs".into());
+    }
+    for (status, intent) in statuses.iter().zip(intents) {
+        if status.hash != intent.hash
+            || status.status != "durably_accepted"
+            || status.block_height.is_some()
+            || status.error.is_some()
+        {
+            return Err("Replay intent was previously resolved or admission order differs".into());
+        }
     }
     Ok(())
 }
 
 fn validate_pending(view: &ReadView, pending: &[Pending]) -> Result<(), String> {
-    if pending.len() > MAX_PENDING {
+    let capacity = view.capacity();
+    if pending.len() > capacity.max_pending {
         return Err("Replay pending queue exceeds profile".into());
     }
     for intent in pending {
@@ -264,7 +284,7 @@ fn validate_pending(view: &ReadView, pending: &[Pending]) -> Result<(), String> 
         }
         let info = execution::inspect_for_chain(&intent.raw, view.chain_id())
             .map_err(|_| "Invalid pending signed envelope")?;
-        if info.gas_limit == 0 || info.gas_limit > BLOCK_GAS {
+        if info.gas_limit == 0 || info.gas_limit > capacity.block_gas {
             return Err("Pending gas limit exceeds the development profile".into());
         }
         view.pending_nonce(intent.sender)?;

@@ -1,5 +1,5 @@
 use super::{ReadView, block, encoding::key};
-use crate::protocol::{BLOCK_BYTES, BLOCK_GAS, BlockContext, BlockInfo};
+use crate::protocol::{BlockContext, BlockInfo};
 use alloy_primitives::B256;
 
 impl ReadView {
@@ -15,7 +15,7 @@ impl ReadView {
         let bytes = self
             .get(key(0x30, &height.to_be_bytes()))?
             .ok_or("Missing replay block")?;
-        let stored = block::decode(&bytes)?;
+        let stored = block::decode_with_capacity(&bytes, self.capacity())?;
         if stored.head.height != height {
             return Err("Replay block height mismatch".into());
         }
@@ -41,7 +41,7 @@ impl ReadView {
                 context: BlockContext {
                     number: 0,
                     timestamp: 0,
-                    gas_limit: BLOCK_GAS,
+                    gas_limit: self.capacity().block_gas,
                 },
                 head,
                 transactions: vec![],
@@ -52,7 +52,7 @@ impl ReadView {
         let bytes = self
             .get(key(0x30, &height.to_be_bytes()))?
             .ok_or("Missing committed block")?;
-        let stored = block::decode(&bytes)?;
+        let stored = block::decode_with_capacity(&bytes, self.capacity())?;
         if stored.head.height != height {
             return Err("Block height identity mismatch".into());
         }
@@ -65,7 +65,7 @@ impl ReadView {
                 .checked_add(4 + raw.len())
                 .ok_or("Block byte overflow")?;
         }
-        if encoded_bytes > BLOCK_BYTES {
+        if encoded_bytes > self.capacity().block_bytes {
             return Err("Block payload exceeds protocol limit".into());
         }
         let gas_used = stored

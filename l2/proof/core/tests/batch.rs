@@ -1,6 +1,7 @@
 //! One cross-engine boundary flow consumes the node's retained private export.
 use alephium_l2_transition_core::{
-    BatchTransitionBundle, batch_data, decode_input, prove_batch_transition, prove_input,
+    BatchTransitionBundle, RawEnvelope, batch_data, decode_input, prove_batch_transition,
+    prove_input,
 };
 use alloy_primitives::{B256, U256};
 use std::{fs, path::PathBuf};
@@ -59,7 +60,7 @@ fn actual_batch_execution_statement_and_mutation_boundaries() {
     wrong.blocks[1].transactions[0].expected_receipt.gas_used += 1;
     assert!(prove_batch_transition(&wrong).is_err());
     wrong = input.clone();
-    wrong.blocks[0].transactions[0].raw_envelope_hex = "0xff".into();
+    wrong.blocks[0].transactions[0].raw_envelope_hex = RawEnvelope::from_bytes(vec![0xff]).unwrap();
     assert!(prove_batch_transition(&wrong).is_err());
     wrong = input.clone();
     wrong.genesis.accounts[0].balance += U256::from(1);

@@ -3,7 +3,7 @@ use super::{
     encoding::{Decoder, key, slot_key},
     records,
 };
-use crate::protocol::{Account, BLOCK_BYTES, Genesis, TransactionStatus};
+use crate::protocol::{Account, Genesis, TransactionStatus};
 use alloy_primitives::{B256, keccak256};
 use fjall::Readable;
 use std::collections::{BTreeMap, BTreeSet};
@@ -39,7 +39,7 @@ pub(super) fn validate(
         if block_key.len() != 9 {
             return Err("invalid retained block key".into());
         }
-        let retained = block::decode(&bytes)?;
+        let retained = block::decode_with_capacity(&bytes, view.capacity())?;
         if retained.parent != head
             || block_key[1..] != retained.head.height.to_be_bytes()
             || retained.context.number != retained.head.height
@@ -54,7 +54,7 @@ pub(super) fn validate(
                 .ok_or("logical block size overflow")?;
             expected.insert(key(0x20, hash.as_slice()), raw);
         }
-        if logical_size > BLOCK_BYTES {
+        if logical_size > view.capacity().block_bytes {
             return Err("retained block exceeds complete payload limit".into());
         }
         // Insert code before account resolution: multiple accounts may share code
@@ -257,7 +257,7 @@ fn validate_pending(
     let mut hashes = BTreeSet::new();
     for entry in view.snapshot.prefix(&view.items, [0x23]) {
         let (pending_key, bytes) = entry.into_inner().map_err(super::engine_error)?;
-        if pending_key.len() != 9 || hashes.len() >= crate::protocol::MAX_PENDING {
+        if pending_key.len() != 9 || hashes.len() >= view.capacity().max_pending {
             return Err("invalid pending recovery bound".into());
         }
         let ordinal = u64::from_be_bytes(pending_key[1..].try_into().unwrap());

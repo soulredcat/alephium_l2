@@ -38,14 +38,20 @@ pub fn execute(
     let child_id = canonical_child_id()?;
     let fixture = Fixture::at_id(&child_id)?;
     let template_id = fixture_id(b"ALPH/L2/stagedfactory/template-fixture/v1");
-    let template = child_state(child, &template_id, staged_cases::initial_fields());
+    let template = child_state(
+        child,
+        &template_id,
+        staged_cases::initial_fields(),
+        &fixture.payload_id,
+    );
     let immutable = json!([
         bytes(&hex::encode(template_id)),
         child.evidence["productionCodeHash"]
             .as_str()
             .map(bytes)
             .ok_or("Missing native template code hash")?,
-        word(FP_MODULUS)
+        word(FP_MODULUS),
+        bytes(&fixture.payload_id)
     ]);
     let root_state = json!({"address": staged_cases::contract_address(&factory_id),
         "bytecode": factory.bytecode, "codeHash": factory.evidence["productionCodeHash"],
@@ -57,8 +63,10 @@ pub fn execute(
         "childDerivation": "Blake2b256(Blake2b256(factoryId || path)), final byte = group 0",
         "derivationSource": "https://github.com/alephium/alephium/blob/v4.7.0/protocol/src/main/scala/org/alephium/protocol/model/ContractId.scala",
         "inputAssetSchemaSource": "https://github.com/alephium/alephium/blob/v4.7.0/api/src/main/scala/org/alephium/api/model/TestInputAsset.scala",
-        "factoryImmutableConfigurationPinned": true, "maximumFactoryRequests": MAX_FACTORY_REQUESTS,
+        "factoryImmutableConfigurationPinned": true, "expectedPayloadId": fixture.payload_id,
+        "payloadDomain": "ALPH/L2/stagedpayload/v1", "maximumFactoryRequests": MAX_FACTORY_REQUESTS,
         "maximumCanonicalChildRequests": 12, "virtualCallerAttoAlph": "1000000000000000000",
+        "maximumSessionBindingRequests": crate::session_binding::REQUESTS,
         "virtualChildDepositAttoAlph": "100000000000000000", "signed": false,
         "templateTrust": "synthetically supplied pinned production code, not prover authority",
         "canonicalStateSource": "VM copyCreateSubContract result then checked canonical child transitions",
@@ -115,8 +123,8 @@ pub fn execute(
     let mut forged = staged_cases::initial_fields();
     forged[0] = word("3");
     forged[staged_cases::MUTABLE_WORDS] = bytes(statement);
-    let clone = child_state(child, &clone_id, forged);
-    run.clone_view(child, &clone, statement)?;
+    let clone = child_state(child, &clone_id, forged, &fixture.payload_id);
+    crate::session_binding::forged_clone_view(&mut run, child, &clone, statement)?;
     run.reject(
         "forged-clone-without-canonical-child",
         accepted,
@@ -139,6 +147,19 @@ pub fn execute(
         &[substituted],
         1511,
     )?;
+    crate::session_binding::reject_factory_binding(
+        &mut run, create, accepted, &fixture, &template, &created,
+    )?;
+    let mut binding_report = json!({"passed": false});
+    let binding = crate::session_binding::reject_hijacks(
+        node,
+        child,
+        &mut binding_report,
+        &fixture,
+        &created,
+    );
+    run.report["sessionBinding"] = binding_report;
+    binding?;
 
     let mut child_report = json!({"results": [], "passed": false});
     let final_state =
@@ -179,7 +200,8 @@ pub fn execute(
     let child_count = run.report["canonicalChildLifecycle"]["executedCases"]
         .as_u64()
         .ok_or("Missing canonical child request count")?;
-    run.report["executedCases"] = json!(run.records.len() as u64 + child_count);
+    run.report["executedCases"] =
+        json!(run.records.len() as u64 + child_count + crate::session_binding::REQUESTS as u64);
     run.report["passed"] = json!(true);
     Ok(())
 }
@@ -215,7 +237,7 @@ impl<'a> Run<'a> {
         }
     }
 
-    fn request(&self, method: usize, args: Vec<Value>, existing: &[Value]) -> Value {
+    pub(crate) fn request(&self, method: usize, args: Vec<Value>, existing: &[Value]) -> Value {
         let funding = if Some(&method) == self.factory.public_methods.get("create") {
             // P2PKH 00 || 31 zero bytes || fb has group 0 under v4.7.0
             // DjbHash/ScriptHint. No public key or private key is generated.
@@ -239,7 +261,7 @@ impl<'a> Run<'a> {
         self.node.test(request)
     }
 
-    fn record(&mut self, entry: Value) -> Result<(), String> {
+    pub(crate) fn record(&mut self, entry: Value) -> Result<(), String> {
         let passed = entry["passed"] == true;
         let name = entry["name"].as_str().unwrap_or("unknown").to_owned();
         self.records.push(entry);
@@ -264,7 +286,12 @@ impl<'a> Run<'a> {
         self.reject_request(name, self.request(method, args, existing), code)
     }
 
-    fn reject_request(&mut self, name: &str, request: Value, code: u64) -> Result<(), String> {
+    pub(crate) fn reject_request(
+        &mut self,
+        name: &str,
+        request: Value,
+        code: u64,
+    ) -> Result<(), String> {
         let (passed, actual, outcome) = match self.send(&request) {
             Err(ProbeError::VmAssertion(actual)) => (actual == code, Some(actual), "vm-assertion"),
             Err(ProbeError::VmGasExhausted) => (false, None, "vm-gas-exhausted"),
@@ -277,7 +304,7 @@ impl<'a> Run<'a> {
             "carriedCanonicalStateUnchanged": true, "realOnChainRollbackProven": false}))
     }
 
-    fn success(&mut self, name: &str, request: &Value) -> Result<Value, String> {
+    pub(crate) fn success(&mut self, name: &str, request: &Value) -> Result<Value, String> {
         match self.send(request) {
             Ok(response) => Ok(response),
             Err(error) => {
@@ -302,7 +329,10 @@ impl<'a> Run<'a> {
     ) -> Result<Value, String> {
         let request = self.request(method, Vec::new(), std::slice::from_ref(template));
         let response = self.success("canonical-factory-create", &request)?;
-        let expected = child_state(child, id, staged_cases::initial_fields());
+        let payload = self.root_state["immFields"][3]["value"]
+            .as_str()
+            .ok_or("Missing immutable factory payload binding")?;
+        let expected = child_state(child, id, staged_cases::initial_fields(), payload);
         let owned = checked_states(&response, &[&self.root_state, template, &expected]);
         let events = response["events"].as_array();
         let mut system_id = [0_u8; 32];
@@ -332,28 +362,6 @@ impl<'a> Run<'a> {
             .into_iter()
             .find(|state| state["address"] == expected["address"])
             .ok_or("Missing VM-created canonical child".into())
-    }
-
-    fn clone_view(
-        &mut self,
-        child: &Compiled,
-        clone: &Value,
-        statement: &str,
-    ) -> Result<(), String> {
-        let view = child
-            .public_methods
-            .get("getAcceptance")
-            .ok_or("Missing child acceptance view")?;
-        let request = json!({"group": 0, "address": clone["address"], "bytecode": child.bytecode,
-            "initialImmFields": clone["immFields"], "initialMutFields": clone["mutFields"],
-            "initialAsset": asset(), "methodIndex": view, "args": [], "existingContracts": [], "inputAssets": []});
-        let response = self.success("forged-clone-claims-final-view", &request)?;
-        let checked = checked_states(&response, &[clone]);
-        self.record(json!({"name": "forged-clone-claims-final-view",
-            "passed": envelope(&response, clone) && checked.is_ok() && response["events"] == json!([])
-                && response["returns"] == json!([word("3"), bytes(statement)]),
-            "outcome": "vm-success", "gasUsed": response["gasUsed"], "syntheticallyForgedAttackState": true,
-            "canonicalOriginEvidence": false, "stateValidationError": checked.as_ref().err()}))
     }
 
     pub(crate) fn accepted(

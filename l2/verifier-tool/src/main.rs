@@ -21,6 +21,7 @@ mod receipt_sources;
 mod residue_cases;
 mod residue_witness;
 mod service;
+mod session_binding;
 mod source_inventory;
 mod staged_canonical;
 mod staged_cases;
@@ -44,7 +45,16 @@ use std::{
 const HARNESS_DEADLINE: Duration = Duration::from_secs(120);
 
 fn run() -> Result<(), String> {
-    let args: Vec<_> = env::args_os().skip(1).collect();
+    let mut args: Vec<_> = env::args_os().skip(1).collect();
+    let no_run_time_limit = args
+        .first()
+        .is_some_and(|flag| flag == "--no-run-time-limit");
+    if no_run_time_limit {
+        args.remove(0);
+    }
+    if args.iter().any(|flag| flag == "--no-run-time-limit") {
+        return Err("--no-run-time-limit must occur once as the first option".into());
+    }
     let mut actual = None;
     let (suite, jar, evidence) = match args.as_slice() {
         [flag, mode, jar, evidence, receipt, image, journal]
@@ -74,7 +84,7 @@ fn run() -> Result<(), String> {
             (Suite::StagedFactory, PathBuf::from(jar), PathBuf::from(evidence)),
         [flag, mode, jar, evidence] if flag == "--mainnet-readonly" && mode == "--staged-factory" =>
             (Suite::StagedFactoryFlow, PathBuf::from(jar), PathBuf::from(evidence)),
-        _ => return Err("Usage: alephium-l2-verifier-tool --mainnet-readonly [--tower|--pairing-arithmetic|--curves|--miller|--receipt|--receipt-residue|--residue-diagnostics|--staged-receipt|--staged-factory-compile|--staged-factory] <pinned-ralphc.jar> <NEW-evidence-directory>; or --mainnet-readonly --staged-actual <pinned-ralphc.jar> <NEW-evidence-directory> <private-receipt-directory> <expected-image-id-hex> <expected-journal-sha256-hex>".into()),
+        _ => return Err("Usage: alephium-l2-verifier-tool [--no-run-time-limit] --mainnet-readonly [--tower|--pairing-arithmetic|--curves|--miller|--receipt|--receipt-residue|--residue-diagnostics|--staged-receipt|--staged-factory-compile|--staged-factory] <pinned-ralphc.jar> <NEW-evidence-directory>; or [--no-run-time-limit] --mainnet-readonly --staged-actual <pinned-ralphc.jar> <NEW-evidence-directory> <private-receipt-directory> <expected-image-id-hex> <expected-journal-sha256-hex>".into()),
     };
     fs::create_dir(&evidence)
         .map_err(|_| "Evidence directory must be new and its parent writable")?;
@@ -82,14 +92,17 @@ fn run() -> Result<(), String> {
         .canonicalize()
         .map_err(|_| "Cannot resolve fresh evidence directory")?;
     let started = Instant::now();
-    let deadline = started + HARNESS_DEADLINE;
+    // Absence is an explicit policy, not an arbitrarily large synthetic timeout.
+    let deadline = (!no_run_time_limit).then(|| started + HARNESS_DEADLINE);
+    let deadline_seconds = (!no_run_time_limit).then_some(HARNESS_DEADLINE.as_secs());
     let mut report = json!({
         "schema": 1, "scope": suite.scope(),
         "endpoint": transport::ENDPOINT, "selectedNetworkId": 0,
         "mainnetReadOnlyExplicitlySelected": true,
         "operation": "offline compilation and synthetic contracts/test-contract simulation",
         "sourcesUploadedToPublicEndpoints": false,
-        "limits": {"caseCount": suite.case_count(), "deadlineSeconds": 120,
+        "limits": {"caseCount": suite.case_count(), "deadlineSeconds": deadline_seconds,
+            "runTimeLimitApplied": !no_run_time_limit,
             "parameterBindingRequests": 1, "maxVmRequests": suite.case_count() + 1,
             "requestTimeoutSeconds": 10, "maxResponseBytes": 1_048_576,
             "maxExecutableBytes": 32_768, "maxVmGasPerCase": 5_000_000,

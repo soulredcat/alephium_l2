@@ -38,14 +38,20 @@ pub(crate) fn execute(
         return Err("Actual receipt fixture is not bound to the canonical child".into());
     }
     let template_id = fixture_id(b"ALPH/L2/stagedfactory/template-fixture/v1");
-    let template = child_state(child, &template_id, staged_cases::initial_fields());
+    let template = child_state(
+        child,
+        &template_id,
+        staged_cases::initial_fields(),
+        &fixture.payload_id,
+    );
     let immutable = json!([
         bytes(&hex::encode(template_id)),
         child.evidence["productionCodeHash"]
             .as_str()
             .map(bytes)
             .ok_or("Missing native template code hash")?,
-        word(FP_MODULUS)
+        word(FP_MODULUS),
+        bytes(&fixture.payload_id)
     ]);
     let root_state = json!({"address": staged_cases::contract_address(&factory_id),
         "bytecode": factory.bytecode, "codeHash": factory.evidence["productionCodeHash"],
@@ -55,9 +61,11 @@ pub(crate) fn execute(
         "fixtureFactoryId": hex::encode(factory_id), "childPath": "7631",
         "independentlyDerivedChildId": hex::encode(child_id),
         "childDerivation": "Blake2b256(Blake2b256(factoryId || path)), final byte = group 0",
-        "factoryImmutableConfigurationPinned": true, "maximumFactoryRequests": 9,
+        "factoryImmutableConfigurationPinned": true, "expectedPayloadId": fixture.payload_id,
+        "payloadDomain": "ALPH/L2/stagedpayload/v1", "maximumFactoryRequests": 14,
         "maximumCanonicalChildRequests": 17, "maximumWrongJournalRequests": 11,
         "maximumWrongImageRequests": 11, "maximumChangedProofRequests": 11,
+        "maximumSessionBindingRequests": crate::session_binding::REQUESTS,
         "virtualCallerAttoAlph": "1000000000000000000",
         "virtualChildDepositAttoAlph": "100000000000000000", "signed": false,
         "templateTrust": "synthetically supplied pinned production code, not prover authority",
@@ -67,9 +75,17 @@ pub(crate) fn execute(
         "realOnChainContinuityProven": false, "durableStateProven": false,
         "settlementAccepted": false, "forgedCanonicalOriginUsed": false
     });
-    let mut run = Run::new(node, factory, root_state, report);
+    let mut run = Run::new(node, factory, root_state.clone(), report);
     // The only positive origin is this checked actual VM creation response.
     let created = run.create(create, child, &template, &child_id)?;
+    crate::session_binding::reject_factory_binding(
+        &mut run, create, accepted, fixture, &template, &created,
+    )?;
+    let mut binding_report = json!({"passed": false});
+    let binding =
+        crate::session_binding::reject_hijacks(node, child, &mut binding_report, fixture, &created);
+    run.report["sessionBinding"] = binding_report;
+    binding?;
     run.reject(
         "actual-acceptance-before-finish",
         accepted,
@@ -83,7 +99,7 @@ pub(crate) fn execute(
     let mut forged = staged_cases::initial_fields();
     forged[0] = word("3");
     forged[staged_cases::MUTABLE_WORDS] = bytes(&fixture.statement_id);
-    let clone = child_state(child, &clone_id, forged);
+    let clone = child_state(child, &clone_id, forged, &fixture.payload_id);
     run.reject(
         "actual-forged-clone-without-canonical",
         accepted,
@@ -127,8 +143,9 @@ pub(crate) fn execute(
     )?;
     run.accepted(accepted, &fixture.statement_id, &final_state)?;
 
-    // Each isolated negative starts at the same genuine VM-created zero origin.
-    // Original auxiliary bytes remain unchanged for all three false equations.
+    // Separate synthetic universes deliberately bind each false equation, so
+    // these exercise arithmetic rejection as well as the intended-input guards.
+    // Each starts at genuine VM creation, never a forged arithmetic checkpoint.
     for (section, label, id, args) in [
         (
             "wrongJournalLifecycle",
@@ -150,12 +167,24 @@ pub(crate) fn execute(
         ),
     ] {
         let mut bad_report = json!({"results": [], "passed": false});
+        let bad_fixture = Fixture::from_args(&child_id, args)?;
+        if bad_fixture.statement_id != *id {
+            return Err("Independent false-claim statement differs".into());
+        }
+        let mut bad_root = root_state.clone();
+        bad_root["immFields"][3] = bytes(&bad_fixture.payload_id);
+        let mut bad_factory_report = json!({"factoryLifecycle": {
+            "scope": "isolated false-input binding; not the intended factory configuration",
+            "deliberatelyFalsePayloadId": bad_fixture.payload_id},
+            "results": [], "passed": false});
+        let mut bad_run = Run::new(node, factory, bad_root, &mut bad_factory_report);
+        let bad_created = bad_run.create(create, child, &template, &child_id)?;
         let bad_state = staged_canonical::execute(
             node,
             child,
             &mut bad_report,
-            fixture,
-            &created,
+            &bad_fixture,
+            &bad_created,
             Claim {
                 label,
                 id,
@@ -171,24 +200,34 @@ pub(crate) fn execute(
         {
             return Err("Rejected actual claim did not retain its checked ready state".into());
         }
-        run.reject(
+        bad_run.reject(
             &format!("{label}-never-factory-accepted"),
             accepted,
             vec![bytes(id)],
             std::slice::from_ref(&bad_state),
             1514,
         )?;
+        if bad_run.records.len() != 2 {
+            return Err("False-input factory count differs".into());
+        }
+        bad_run.report["executedCases"] = json!(2);
+        bad_run.report["passed"] = json!(true);
+        run.report[format!("{section}Factory")] = bad_factory_report;
     }
     let count = |section: &str| {
         run.report[section]["executedCases"]
             .as_u64()
             .ok_or("Missing actual receipt child request count")
     };
-    if run.records.len() != 9
+    if run.records.len() != 8
         || count("canonicalChildLifecycle")? != 17
         || count("wrongJournalLifecycle")? != 11
         || count("wrongImageLifecycle")? != 11
         || count("changedProofLifecycle")? != 11
+        || count("wrongJournalLifecycleFactory")? != 2
+        || count("wrongImageLifecycleFactory")? != 2
+        || count("changedProofLifecycleFactory")? != 2
+        || count("sessionBinding")? != crate::session_binding::REQUESTS as u64
     {
         return Err("Actual factory flow differs from its fixed request inventory".into());
     }
@@ -202,6 +241,9 @@ pub(crate) fn execute(
         "wrongJournalLifecycle",
         "wrongImageLifecycle",
         "changedProofLifecycle",
+        "wrongJournalLifecycleFactory",
+        "wrongImageLifecycleFactory",
+        "changedProofLifecycleFactory",
     ] {
         gas.extend(
             run.report[section]["results"]
@@ -219,6 +261,7 @@ pub(crate) fn execute(
     run.report["factoryLifecycle"]["wrongImageNeverAccepted"] = json!(true);
     run.report["factoryLifecycle"]["changedProofNeverAccepted"] = json!(true);
     run.report["factoryLifecycle"]["actualForgedOriginGuardsPassed"] = json!(true);
+    run.report["factoryLifecycle"]["immutableIntendedInputGuardsPassed"] = json!(true);
     run.report["factoryLifecycle"]["finalCheckpointSha256"] = json!(fingerprint(
         final_state["mutFields"]
             .as_array()

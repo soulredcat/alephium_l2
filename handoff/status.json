@@ -1,171 +1,156 @@
 {
-  "schema": 1,
-  "updated": "2026-10-05",
-  "scope": "Portable continuation status; original handoff evidence retained with scoped PR review updates",
-  "status": "mainnet-implementation-and-proving-paused; scoped-PR-review-authorized",
+  "schema": 2,
+  "updated": "2026-10-07",
+  "scope": "Published source capabilities and curated recorded development qualification; private execution artifacts excluded",
+  "p4_complete": true,
+  "p4_acceptance_scope": "Fresh 10-transaction development proving fixture",
   "mainnet_complete": false,
-  "all_p4_p8_checkboxes_complete": false,
-  "private_material_included": false,
-  "validation_this_handoff": {
-    "source_closure": "checked statically",
-    "builds_or_tests_run": true,
-    "wsl_or_prover_started": false,
-    "live_operations_performed": false,
-    "compiler_check": "PASSED: cargo check --workspace --all-targets --locked --offline; root node/sdk/verifier workspace only",
-    "proof_workspace_current_validation": "not run; explicitly pending P4 continuation",
-    "packaging_checks": [
-      "187 source/config/fixture/license files exact against paused source",
-      "127 literal Rust includes/path modules resolved",
-      "12 oracle manifest entries verified",
-      "only README.md and docs/HANDOFF.md Markdown",
-      "no tested credential patterns found"
+  "all_p4_p8_complete": false,
+  "open_p5_p8_rows": 12,
+  "phases": {
+    "P1": "development baseline complete",
+    "P2": "development baseline complete",
+    "P3": "development baseline complete",
+    "P4": "complete for declared 10-TX development proving fixture",
+    "P5": "pending; native DA preparation retained",
+    "P6": "pending",
+    "P7": "pending",
+    "P8": "pending"
+  },
+  "fixture": {
+    "transactions": 10,
+    "blocks": 5,
+    "genesis_funded_wallet_transfers": 6,
+    "root_lifecycle_transactions": 4,
+    "setup_transactions": 0,
+    "initial_accounts": 7,
+    "final_accounts": 16,
+    "executed_gas": 295496,
+    "final_checkpoint_bytes": 2326,
+    "durable_acks": 10,
+    "receipts": 10,
+    "exact_accounting": true,
+    "reopen_and_service_restart": true,
+    "node_cuda_verified": 10,
+    "node_cuda_failures": 0,
+    "node_full_cpu_oracle": true,
+    "ordered_revm_and_sync_all": true
+  },
+  "proof": {
+    "kind": "real Groth16",
+    "dev_mode": false,
+    "native_guest_receipt_journal_equal": true,
+    "user_cycles": 30194287,
+    "segments": 68,
+    "independent_native_bn254_pairing": true,
+    "current_guest_and_corrected_cuda_prover": true
+  },
+  "canonical_target": {
+    "scope": "Read-only synthetic VM canonical factory/child acceptance of the same receipt",
+    "cases": 69,
+    "positive_vm_executions": 47,
+    "expected_rejections": 22,
+    "maximum_positive_vm_gas": 1642428,
+    "vm_gas_bound": 5000000,
+    "child_executable_bytes": 31216,
+    "executable_bound": 32768,
+    "rejections": [
+      "changed image",
+      "changed journal",
+      "changed proof",
+      "forged origin",
+      "payload hijack",
+      "invalid stage order"
     ],
-    "recorded_scope": "Initial PR #1 source handoff; later source changes are recorded separately below"
+    "live_deployment": false,
+    "public_settlement": false,
+    "public_testnet_acceptance": false
   },
-  "recorded_checks": [
-    {
-      "scope": "Original-host EVM development transfer/deploy/call/revert/receipt/restart",
-      "status": "passed",
-      "receipt_count": 4,
-      "source_record_sha256": "733e7218c675ba9246f943b2126e3d1b973807c768678470b3700f8616626f79",
-      "genesis_id": "0xe5f102349b3cd14ac0bb880abf0da8a6eb66f5442b1cb6fe3640eaeabc8aea1c",
-      "state_and_receipts_equal": true,
-      "alephium_settlement": false,
-      "chain_id": 424245,
-      "id": "P1-P3"
-    },
-    {
-      "factory_passed": true,
-      "staged_vm_gas_sum": 7043031,
-      "live_deployment": false,
-      "staged_passed": true,
-      "id": "C16",
-      "staged_requests": 39,
-      "source_record_sha256": "4ac61ad362c76fc15287228023676f0683d22065dd70982dd443130cf13be0ac",
-      "ralph_sources_still_match_recorded_hashes": true,
-      "max_advance_vm_gas": 668449,
-      "historical_receipt_only": true,
-      "status": "closed-development-qualification",
-      "factory_requests": 25,
-      "proof_transitions": 11,
-      "scope": "development-only authenticated staged historical receipt and canonical factory synthetic VM qualification"
-    },
-    {
-      "status": "passed",
-      "chains": [
-        424243,
-        424244
-      ],
-      "id": "C17",
-      "scope": "Two isolated configurable chains; signature/genesis/database identity and replay/restart",
-      "source_record_sha256": "3c76c7ee191997d34511cf2d8ee9fbc0342a94558389d9f0116ef02dfc9b3f5e"
-    },
-    {
-      "status": "passed historically",
-      "current_schema3_verified": false,
-      "source_record_sha256": "7585a80592d812d7e88a09e9eda280369315cfe49053c621a5d178f2c2ce2c0c",
-      "scope": "Native core/runtime agreement and mutation/suffix checks before later binary3 edits",
-      "id": "P4-schema2-core",
-      "blocks": 4,
-      "transactions": 4
-    },
-    {
-      "status": "passed",
-      "source_record_sha256": "402ed8865b1550d0efadefa6dcfa5e163feb787c8fb9d1fa712d3eb404901263",
-      "scope": "Producer only; portable-core/guest parity still pending",
-      "id": "P4-native-ecrecover",
-      "blocks": 12,
-      "cases": 11
-    },
-    {
-      "scope": "Actual immutable runtime backup, checkpoint capture and strict binary roundtrip/rejection checks",
-      "status": "passed",
-      "schema": 3,
-      "end_height": 4,
-      "blocks": 2,
-      "guest_verified": false,
-      "parent_height": 2,
-      "source_record_sha256": "1ee8e5d85479c144db02a9a7d85f5a657d4498cd924f3c88d04cd9c2d9c21a9b",
-      "id": "P4-native-checkpoint-export"
-    }
-  ],
-  "current_code": {
-    "latest_proof_core_and_guest_validation": "Native runtime/core batch, ecrecover and schema3 checkpoint agreement passed on fresh execution-schema-2 fixtures in PR #6 CI; guest compile/execute/proof pending",
-    "producer_resource_and_exit_headroom": "Producer enforces the configured checkpoint byte bound plus remaining block-hash-window growth; actual guest cost and recovery/exit headroom remain unqualified",
-    "completed_current_transition_receipt": false,
-    "checkpoint_schema": 3,
-    "interrupted_attempt": "Stopped by operator; no accepted receipt or resumable proof claim",
-    "max_suffix_blocks": 256,
-    "canonical_checkpoint_profile_bytes": 8388608,
-    "execution_only_preflight": "Implemented in PR #7; host validation unit tests pass; actual packaged current-guest execution pending",
-    "complete_input_bytes": 16777216,
-    "checkpoint_wire": "ALEPHIUM-L2/TRANSITION/WIRE/V3",
-    "execution_storage_schema": 2,
-    "legacy_storage_policy": "Schema-1 databases/backups rejected before engine open; original binaries/data retained; no migration",
-    "local_discard_policy": "Execution/capacity rejections resolve durably outside blocks; replay and all export schemas account for them; these unproven outcomes cannot satisfy P6 forced inputs"
+  "statement": {
+    "canonical_fields_reconciled": 30,
+    "journal_bytes": 898,
+    "domains_identity_profile_ancestry_state_inputs_context_receipts_and_da_bound": true,
+    "inbox_count": 0,
+    "outbox_count": 0,
+    "empty_message_commitments_domain_and_genesis_bound": true,
+    "p6_message_rules_specified": true,
+    "l1_relative_timestamp_check_implemented": false
   },
-  "pins": {
-    "guest_session_limit_cycles": 268435456,
-    "ralph_jar_sha256": "a8b221ee71b36a1a960da17b0eb32a490ebf8c4a034414a46d0ed57957e832ac",
-    "historical_program_pin_valid_for_current_v3": false,
-    "risc0_revision": "14b5d588dd01cf4f7ba804d8bb0a61264e6ae2c6",
-    "groth16_verifier_parameters": "73c457ba541936f0d907daf0c7253a39a9c5c427c225ba7709e44702d3c6eedc",
-    "kernel_sha256": "7ffd942e4e8babd771094f549ad080cfea8ecb2c05c986e275c011f41979d921",
-    "kernel_package": "risc0-zkos-v1compat/2.2.0",
-    "historical_schema2_image_id": "16b7cbb0deab8b38c39a3c953af60268a40460394fba9b1c55bf713cf79358a8",
-    "risc0_sdk": "3.0.3",
-    "docker_image": "risczero/risc0-groth16-prover:v2025-04-03.1",
-    "guest_rust": "RISC0 r0.1.94.1",
-    "ralph_compiler": "v4.7.0",
-    "historical_linux_x86_64_r0vm_sha256": "2acdf550f9aca4d05b74072463e4ed307c3824309c754a5cb5f93aa84f3390e6",
+  "declared_profile": {
+    "block_gas": 3000000000,
+    "block_bytes": 33554432,
+    "max_pending": 1000,
+    "producer_checkpoint_limit_bytes": 8388608,
+    "witness_schema": 4,
+    "checkpoint_transport_limit_bytes": 16777216,
+    "transcript_limit_bytes": 35115008,
+    "input_limit_bytes": 52940800,
+    "frame_bytes": 8388608,
+    "test_count_is_node_or_system_limit": false,
+    "node_capacity_changed_by_ten_tx_fixture": false,
+    "arbitrary_numeric_maximum_workloads_qualified": false
+  },
+  "recorded_proof_resources": {
+    "workers": 2,
+    "segment_po2": 19,
+    "max_user_cycles": 4294967296,
+    "external_resident_memory_limit_bytes": 6442450944,
+    "swap_limit_bytes": 0,
+    "overall_wall_clock_limit": null,
+    "owned_process_cleanup_verified": true,
+    "rss_cap_enforced_by_proof_cli": false
+  },
+  "retained_1000": {
+    "scope": "Execution-only preflight",
+    "halted_zero": true,
+    "user_cycles": 2878176684,
+    "segments": 6397,
+    "proven": false
+  },
+  "post_p4": {
+    "proving_1000_plus_qualified": false,
+    "target_1M_transactions_per_block_qualified": false,
+    "target_1M_is_configured_capacity_claim": false,
+    "forced_inputs_and_bridge_owner": "P6",
+    "l1_relative_timestamp_eligibility_owner": "P5.1",
+    "A3_fully_resolved": false,
+    "A6_fully_resolved": false,
+    "public_da_settlement_bridge_recovery_audit_and_mainnet_pending": true
+  },
+  "source_reproduction": {
     "host_rust": "1.97.1",
-    "recorded_docker_digest": "sha256:7f173963196570b7a71816ed70565a4579264c5d2e3e0ecb028102538ad0e331"
+    "guest_rust_baseline": "RISC Zero r0.1.94.1",
+    "risc0_sdk": "3.0.3",
+    "risc0_revision": "14b5d588dd01cf4f7ba804d8bb0a61264e6ae2c6",
+    "dependency_locks": "Cargo.lock and l2/proof/Cargo.lock",
+    "sdk_patch_authority": "l2/proof/host/src/backend/patches.rs",
+    "ordered_sdk_patch_count": 9,
+    "dependency_patch_authority": "l2/proof/host/src/backend/dependency_patches.rs",
+    "sppark_version": "0.1.12",
+    "cumulative_sppark_patch_count": 1,
+    "build_manifest_schema": 2,
+    "source_manifest_match_is_build_lineage_attestation": false,
+    "gpu_vendor_provenance": "l2/gpu/vendor/provenance.json",
+    "gpu_vendor_source_pins": 14,
+    "original_host_fixture_E_drive_mount_guards": true,
+    "external_local_inputs_tools_and_output_roots_required": true,
+    "public_ci_scope": "CPU/native source paths; no portable original-host GPU/proof acceptance"
   },
-  "environment_findings": {
-    "observed_date": "2026-10-05",
-    "original_host_fallback": "127.0.0.1:12973; network 0 v4.7.0; explicitly authorized read-only synthetic VM only",
-    "cargo_cache": "Keep one consistent Cargo home/toolchain per target; source-root switching caused duplicate fingerprints/shared build-script outputs",
-    "metadata_network_id": 1,
-    "fallback_is_portable_endpoint": false,
-    "public_testnet": "https://node.testnet.alephium.org",
-    "filesystem": "DrvFS mode 0777 observed despite Unix mode requests; production privacy/durability qualification remains open",
-    "metadata_version": "v4.7.1",
-    "simulation_post_http_status": 403,
-    "wsl": "Explicitly shut down by operator; do not restart automatically"
+  "native_da": {
+    "source_interface": "l2-da export/reconstruct",
+    "canonical_reconstruction_and_retain_unsettled_preparation": true,
+    "P5_complete": false,
+    "proof_accepted_by_native_package": false,
+    "settlement_eligible": false,
+    "public_data_available": false
   },
-  "omitted": [
-    "private signed transition witnesses",
-    "database backups and node state",
-    "signing/publication intent records",
-    "private receipts and proof binaries",
-    "toolchains, compiler binaries and Docker images",
-    "machine-specific PIDs/session handles/local absolute paths"
+  "exclusions": [
+    "private databases/backups/runtime state",
+    "current signed witnesses, receipts and proof binaries",
+    "private genesis/state/journal/receipt identities and hashes",
+    "local installation paths, binary pins and raw evidence/logs",
+    "credentials, signing records and sensitive payloads"
   ],
-  "next_acceptance": "Build/package/repin and execute the current guest, qualify producer/proof/recovery bounds, then actual proof and canonical target acceptance; all P4-P8 gates remain open",
-  "contribution_workflow": {
-    "implementation": "topic branch and pull request",
-    "reviewer": "designated reviewing assistant",
-    "passing_pr": "merge to main after relevant tests and review pass, automatically closing PR",
-    "failing_pr": "leave open with actionable findings",
-    "direct_main_push": false,
-    "handoff_merge_is_feature_or_mainnet_acceptance": false
-  },
-  "pr_review_20261005": {
-    "scope": "Sequential review and necessary fixes for PR #2-#13, not mainnet acceptance",
-    "native_agreement_run": "https://github.com/soulredcat/alephium_l2/actions/runs/37327778488",
-    "preflight_host_checks_run": "https://github.com/soulredcat/alephium_l2/actions/runs/37327844723",
-    "local_checks": [
-      "Windows gas estimation and admission tests",
-      "Execution profile identity, legacy refusal, restart and replay",
-      "SDK identity, durable transfer, restart and ambiguous response",
-      "JSON-RPC mixed/all notifications and compatibility parsing",
-      "Complete/partial/legacy block-hash indexes and durable failure/reopen",
-      "Discard/restart/replay and all-schema export accounting; core fixture includes an off-chain discard",
-      "Checkpoint byte accounting, future history reserve, no-write refusal and multi-sender fallback"
-    ],
-    "wsl_or_prover_started": false,
-    "existing_nodes_replaced": false,
-    "guest_receipt_generated": false,
-    "settlement_accepted": false
-  }
+  "dependency_boundary": "Rust host/runtime; explicit CUDA C++17/PTX, NVIDIA NVCC/driver, native secp256k1 C, native Groth16 and Scala/JVM dependencies",
+  "license_boundary": "Retain file-specific MIT, Apache-2.0 and applicable GPL-3.0-or-later obligations; no blanket first-party license declared"
 }

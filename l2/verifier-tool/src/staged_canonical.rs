@@ -39,7 +39,7 @@ pub(crate) fn execute(
         method("finish")?,
         method("getAcceptance")?,
     );
-    if compiled.public_methods.len() != 4 {
+    if compiled.public_methods.len() != 5 {
         return Err("Canonical child has an unexpected public entry point".into());
     }
     let mut fields =
@@ -49,6 +49,8 @@ pub(crate) fn execute(
     report["stagedLifecycle"] = json!({
         "scope": "synthetic VM-created canonical child transition replay",
         "fixtureContractId": hex::encode(fixture.contract_id), "fixtureAddress": fixture.address,
+        "expectedPayloadId": fixture.payload_id, "payloadDomain": "ALPH/L2/stagedpayload/v1",
+        "payloadPreimageBytes": 156, "instanceStatementPreimageBytes": 188,
         "canonicalZeroOriginValidated": true, "fixedTransitionRequests": transitions,
         "stateSource": "actual VM factory-created child followed by checked VM states",
         "realOnChainContinuityProven": false, "deploymentProven": false,

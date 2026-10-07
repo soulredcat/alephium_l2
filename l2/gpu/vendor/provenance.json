@@ -1,0 +1,64 @@
+{
+  "upstream": "https://github.com/shrec/UltrafastSecp256k1",
+  "commit": "80b08d5ad77b88cb6eefff7c63eb7780309b2d8c",
+  "license": "MIT",
+  "scope": "Unmodified CUDA arithmetic and Keccak-256 header closure only; native host C ABI excluded",
+  "files": [
+    {
+      "path": "include/ecdsa.cuh",
+      "sha256": "467c51fae1222239f215ff73133d7e548da4e753c9aa141f9c8301f065204ea8"
+    },
+    {
+      "path": "include/gen_table_w8.cuh",
+      "sha256": "d54adb757a1f0ab758a6544f004d10739b8b4345087574c023fe474b692af91b"
+    },
+    {
+      "path": "include/gpu_compat.h",
+      "sha256": "55e6e1488fb4332488e0097dea4f5565baaafdc457280f53ce00d4251f29048f"
+    },
+    {
+      "path": "include/hash160.cuh",
+      "sha256": "186aa46b734022a57244e8261823033b1ce7b027cfcdc6dc248b7f3e047f870d"
+    },
+    {
+      "path": "include/keccak256.cuh",
+      "sha256": "4dcbea4a996b09514681e0296d2dd26e93f01d7dbd13cbb9e324d7c31feb9505"
+    },
+    {
+      "path": "include/ptx_math.cuh",
+      "sha256": "afe48655947424b93237a77482e0ffcb9b851b7cd5c2b883ae482e5e708a4f79"
+    },
+    {
+      "path": "include/recovery.cuh",
+      "sha256": "2a3742be4585eaa02ef2052fd35b07fdb7d32b2f2420c66e436c0c40b65ef7b7"
+    },
+    {
+      "path": "include/secp256k1_32_hybrid_final.cuh",
+      "sha256": "9fcd90b62c18e534e1696e84fd6f59b865d438522ac372e36807cb9f4b354f72"
+    },
+    {
+      "path": "include/secp256k1.cuh",
+      "sha256": "7e3f7950562167d68faa530197e0bb123b4edf00ebac3ec06d354cae1b6b9c96"
+    },
+    {
+      "path": "include/ct/ct_field.cuh",
+      "sha256": "b68dce10605519d10e4c11753c5d09baad62cc4438cfdc8a823c0893aeeb8169"
+    },
+    {
+      "path": "include/ct/ct_ops.cuh",
+      "sha256": "d97d82243b4c71351bce650774fd7dbaed2746a596d7ea7f642b19a744a97a19"
+    },
+    {
+      "path": "include/ct/ct_point.cuh",
+      "sha256": "731c5d3b713e4627bc82b22ebb172f67b7ba104ab261ade04d3f6618f39543dd"
+    },
+    {
+      "path": "include/ct/ct_scalar.cuh",
+      "sha256": "3465e4c43c7e0f471e0d37c41133ceee6a9fa9138c817a0e9cc3e22b449d639c"
+    },
+    {
+      "path": "include/secp256k1/types.hpp",
+      "sha256": "b6c8e7677437e0c919a85550dae84dc7e5b4b077fb3685c05c0739ae19abdea3"
+    }
+  ]
+}

@@ -132,7 +132,15 @@ impl Client {
                 params,
                 remaining(start, budget, hash)?,
             )?;
-            let receipt = receipt::parse(&value, hash)?;
+            let block = match receipt::required_block(&value)? {
+                Some(block_hash) => Some(self.transport.rpc(
+                    "eth_getBlockByHash",
+                    json!([block_hash, false]),
+                    remaining(start, budget, hash)?,
+                )?),
+                None => None,
+            };
+            let receipt = receipt::parse(&value, hash, block.as_ref())?;
             if Some(receipt.block_height) != height
                 || receipt.success != (lifecycle == Lifecycle::Committed)
             {

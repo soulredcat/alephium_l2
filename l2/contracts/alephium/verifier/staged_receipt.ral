@@ -7,7 +7,8 @@
 // https://www.gnu.org/licenses/gpl-3.0.html
 //
 // One isolated proof instance, with no reset or asset authority. Creation must
-// use the exact modulus, zero numeric fields/arrays and the zero32 statement.
+// use the exact modulus, reviewed immutable payload binding, zero numeric
+// fields/arrays and the zero32 execution statement.
 // These constructor fields are not an arithmetic checkpoint input. Each public
 // transition derives the next state on target; only finish can accept a proof.
 // Acceptance is meaningful only for an authenticated canonical instance:
@@ -17,7 +18,8 @@
 // Dynamic pair order is original slots 0,2,3; the certified slot 1 is appended
 // once after ordinary Q corrections. Homogeneous statePoints use x=X/Z, y=Y/Z.
 
-Contract Risc0StagedReceiptVerifier(fpModulus: U256, mut stateStatus: U256, mut stateCursor: U256,
+Contract Risc0StagedReceiptVerifier(fpModulus: U256, expectedPayloadId: ByteVec,
+    mut stateStatus: U256, mut stateCursor: U256,
     mut statePairs: [U256; 18], mut statePoints: [U256; 18], mut stateRootInverse: [U256; 12],
     mut stateRoot: [U256; 12], mut stateAccumulator: [U256; 12], mut stateCorrection: [U256; 6],
     mut stateStatementId: ByteVec) extends Risc0ReceiptClaims(fpModulus),
@@ -29,10 +31,14 @@ Contract Risc0StagedReceiptVerifier(fpModulus: U256, mut stateStatus: U256, mut 
     const STAGED_WRONG_PHASE = 1500
     const STAGED_WRONG_STATEMENT = 1501
     const STAGED_WRONG_CURSOR = 1502
+    const STAGED_WRONG_PAYLOAD = 1503
     // Exact ASCII domain ALPH/L2/stagedreceipt/v1. Identity preimage is 188B:
     // domain24 || selfContractId32 || selector4 || image32 || journal32
     // || SHA256(seal)32 || SHA256(auxiliary)32, with no optional components.
     const STAGED_STATEMENT_DOMAIN = #414c50482f4c322f737461676564726563656970742f7631
+    // This identity-independent commitment can be selected before deployment.
+    // The separate execution statement still binds the actual child ID.
+    const STAGED_PAYLOAD_DOMAIN = #414c50482f4c322f7374616765647061796c6f61642f7631
     const STAGED_DIGITS_PER_ADVANCE = 8
 
     fn stagedDecodeAuxiliary(auxiliary: ByteVec) -> [U256; 18] {
@@ -76,6 +82,15 @@ Contract Risc0StagedReceiptVerifier(fpModulus: U256, mut stateStatus: U256, mut 
         assert!(stateStatus == 0, STAGED_WRONG_PHASE)
         assert!(size!(auxiliary) == 577, RESIDUE_INVALID_LENGTH)
         assert!(byteVecSlice!(auxiliary, 0, 1) == #01, RESIDUE_INVALID_VERSION)
+        assert!(size!(seal) == 260 && size!(imageId) == 32 && size!(journalDigest) == 32,
+            RECEIPT_INVALID_LENGTH)
+        assert!(byteVecSlice!(seal, 0, 4) == RECEIPT_SELECTOR, RECEIPT_SELECTOR_MISMATCH)
+        let sealDigest = sha256!(seal)
+        let auxiliaryDigest = sha256!(auxiliary)
+        let payloadId = sha256!(STAGED_PAYLOAD_DOMAIN ++ RECEIPT_SELECTOR
+            ++ imageId ++ journalDigest ++ sealDigest ++ auxiliaryDigest)
+        assert!(size!(expectedPayloadId) == 32 && payloadId == expectedPayloadId,
+            STAGED_WRONG_PAYLOAD)
         // Retain original proof admission, all five signals and the folded key.
         let admittedPairs = receiptPairs(seal, imageId, journalDigest)
         fixedPairGuard(admittedPairs)
@@ -95,7 +110,7 @@ Contract Risc0StagedReceiptVerifier(fpModulus: U256, mut stateStatus: U256, mut 
             admittedPairs[20], admittedPairs[21], admittedPairs[22], admittedPairs[23]]
         let initialPoints = stagedInitialPoints(dynamicPairs)
         let boundStatement = sha256!(STAGED_STATEMENT_DOMAIN ++ selfContractId!()
-            ++ RECEIPT_SELECTOR ++ imageId ++ journalDigest ++ sha256!(seal) ++ sha256!(auxiliary))
+            ++ RECEIPT_SELECTOR ++ imageId ++ journalDigest ++ sealDigest ++ auxiliaryDigest)
         statePairs = dynamicPairs
         statePoints = initialPoints
         stateRootInverse = inverseWitness
@@ -233,5 +248,11 @@ Contract Risc0StagedReceiptVerifier(fpModulus: U256, mut stateStatus: U256, mut 
     pub fn getAcceptance() -> (U256, ByteVec) {
         fpCheckParameters()
         return stateStatus, stateStatementId
+    }
+
+    // Consumers verify this immutable binding through the canonical factory.
+    pub fn getBinding() -> (U256, ByteVec) {
+        fpCheckParameters()
+        return fpModulus, expectedPayloadId
     }
 }

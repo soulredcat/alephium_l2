@@ -6,7 +6,7 @@ use super::{
 };
 use crate::{
     execution,
-    protocol::{BLOCK_GAS, Genesis},
+    protocol::{BLOCK_GAS, Capacity, Genesis},
     storage::{ReadView, Store},
 };
 use alloy_primitives::B256;
@@ -29,6 +29,12 @@ pub fn prepare_transition(
     work: &Path,
 ) -> Result<TransitionReport, String> {
     genesis.validate()?;
+    if genesis.capacity != Capacity::default() {
+        return Err(
+            "Legacy single-transfer export requires the default capacity; use a batch export"
+                .into(),
+        );
+    }
     let backup = files::existing_directory(backup)?;
     preflight(&backup, genesis, 1)?;
     let replay = verify_replay(&backup, genesis, work)?;
@@ -78,6 +84,15 @@ pub fn prepare_transition(
 /// An untrusted manifest only filters the bounded candidate before reexecution.
 /// verify_replay still validates its complete inventory and authoritative data.
 pub(super) fn preflight(backup: &Path, genesis: &Genesis, max_blocks: u64) -> Result<(), String> {
+    genesis.capacity.ensure_proof_transport()?;
+    preflight_retained(backup, genesis, max_blocks)
+}
+
+pub(super) fn preflight_retained(
+    backup: &Path,
+    genesis: &Genesis,
+    max_blocks: u64,
+) -> Result<(), String> {
     let path = backup.join("manifest.json");
     let metadata = fs::symlink_metadata(&path).map_err(files::io_error)?;
     files::regular(&metadata)?;
@@ -121,6 +136,8 @@ fn validated_bundle(
         .ok_or("Transition admission count overflow")?;
     if source.chain_id() != genesis.chain_id
         || target.chain_id() != genesis.chain_id
+        || source.capacity() != genesis.capacity
+        || target.capacity() != genesis.capacity
         || source.head != replay.head
         || target.head != replay.head
         || source.head.height != 1

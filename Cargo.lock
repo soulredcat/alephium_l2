@@ -15,9 +15,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "alephium-l2-gpu"
+version = "0.1.0"
+dependencies = [
+ "cudarc",
+]
+
+[[package]]
 name = "alephium-l2-node"
 version = "0.1.0"
 dependencies = [
+ "alephium-l2-gpu",
  "alephium-l2-sdk",
  "alloy-consensus",
  "alloy-eips",
@@ -1374,6 +1382,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cudarc"
+version = "0.19.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "804764d10e844da09765a7b2ca9641a0851523d1702efb0d7299d73e31b86e80"
+dependencies = [
+ "libloading",
+]
+
+[[package]]
 name = "darling"
 version = "0.23.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2455,6 +2472,16 @@ name = "libc"
 version = "0.2.190"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ce5d3ddc6d3fa000eb1536d85e147bfe31aacaba692ed6a876f95cb7c855be78"
+
+[[package]]
+name = "libloading"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "754ca22de805bb5744484a5b151a9e1a8e837d5dc232c2d7d8c2e3492edc8b60"
+dependencies = [
+ "cfg-if",
+ "windows-link",
+]
 
 [[package]]
 name = "libm"

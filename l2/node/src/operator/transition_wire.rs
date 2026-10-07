@@ -1,10 +1,10 @@
 //! Normative binary schema-three input. Never log encoded signed envelopes.
 use super::transition_types::{
-    CheckpointTransitionBundle, MAX_TRANSITION_BLOCKS, SettlementDomain, TransitionBlock,
-    TransitionContext, TransitionInput,
+    CheckpointTransitionBundle, MAX_TRANSITION_BLOCKS, RawEnvelope, SettlementDomain,
+    TransitionBlock, TransitionContext, TransitionInput,
 };
 use crate::protocol::{
-    BLOCK_BYTES, MAX_PENDING, MAX_TRANSACTION_BYTES, Receipt,
+    Capacity, MAX_TRANSACTION_BYTES, Receipt,
     checkpoint::ExecutionCheckpoint,
     encoding::{Decoder, Encoder, MAX_RECORD},
     head_codec::{encode_head, read_head},
@@ -18,6 +18,7 @@ const MAX_PROFILE_BYTES: usize = 256;
 
 pub fn is_checkpoint_wire(bytes: &[u8]) -> bool {
     bytes.starts_with(CHECKPOINT_WIRE_MAGIC)
+        || super::transition_wire_large::is_large_checkpoint_wire(bytes)
 }
 
 /// Includes all fixed outer fields and the checkpoint frame, excluding blocks.
@@ -44,18 +45,25 @@ pub fn checkpoint_transition_base_bytes(
     Ok(size)
 }
 
-pub fn checkpoint_transition_block_bytes(block: &TransitionBlock) -> Result<usize, String> {
-    if block.transactions.is_empty() || block.transactions.len() > MAX_PENDING {
+pub fn checkpoint_transition_block_bytes_with_capacity(
+    block: &TransitionBlock,
+    capacity: Capacity,
+) -> Result<usize, String> {
+    capacity.ensure_proof_transport()?;
+    if block.context.gas_limit != capacity.block_gas {
+        return Err("transition block gas differs from its checkpoint profile".into());
+    }
+    if block.transactions.is_empty() || block.transactions.len() > capacity.max_pending {
         return Err("transition block transaction count exceeds its bound".into());
     }
     let mut size = 80 + 80 + 24 + 4;
     let mut logical_bytes = 148usize;
     for transaction in &block.transactions {
-        let raw = raw_length(&transaction.raw_envelope_hex)?;
+        let raw = transaction.raw_envelope_hex.as_bytes().len();
         logical_bytes = logical_bytes
             .checked_add(4 + raw)
             .ok_or("block byte overflow")?;
-        if logical_bytes > BLOCK_BYTES {
+        if logical_bytes > capacity.block_bytes {
             return Err("transition block exceeds the runtime payload bound".into());
         }
         add(&mut size, 32 + 4 + raw + 4)?;
@@ -68,6 +76,7 @@ pub fn encode_checkpoint_transition(
     bundle: &CheckpointTransitionBundle,
 ) -> Result<Vec<u8>, String> {
     bundle.domain.validate()?;
+    bundle.checkpoint.capacity.ensure_proof_transport()?;
     if bundle.schema != 3
         || bundle.blocks.is_empty()
         || bundle.blocks.len() as u64 > MAX_TRANSITION_BLOCKS
@@ -81,7 +90,10 @@ pub fn encode_checkpoint_transition(
         checkpoint.len(),
     )?;
     for block in &bundle.blocks {
-        add(&mut size, checkpoint_transition_block_bytes(block)?)?;
+        add(
+            &mut size,
+            checkpoint_transition_block_bytes_with_capacity(block, bundle.checkpoint.capacity)?,
+        )?;
     }
     // The complete size is checked before allocating the transport buffer.
     let mut out = Encoder(Vec::with_capacity(size));
@@ -103,9 +115,7 @@ pub fn encode_checkpoint_transition(
         out.u32(block.transactions.len() as u32);
         for transaction in &block.transactions {
             out.hash(transaction.transaction_hash);
-            let raw = hex::decode(&transaction.raw_envelope_hex[2..])
-                .map_err(|_| "invalid private envelope hex")?;
-            out.bytes(&raw)?;
+            out.bytes(transaction.raw_envelope_hex.as_bytes())?;
             out.bytes(&encode_receipt(&transaction.expected_receipt, true)?)?;
         }
     }
@@ -118,6 +128,9 @@ pub fn encode_checkpoint_transition(
 }
 
 pub fn decode_checkpoint_transition(bytes: &[u8]) -> Result<CheckpointTransitionBundle, String> {
+    if super::transition_wire_large::is_large_checkpoint_wire(bytes) {
+        return super::transition_wire_large::decode_large_checkpoint_transition(bytes);
+    }
     let mut input = Decoder::new(bytes)?;
     if input.take(CHECKPOINT_WIRE_MAGIC.len())? != CHECKPOINT_WIRE_MAGIC || input.u32()? != 3 {
         return Err("invalid binary checkpoint transition domain or version".into());
@@ -132,6 +145,7 @@ pub fn decode_checkpoint_transition(bytes: &[u8]) -> Result<CheckpointTransition
     domain.validate()?;
     let checkpoint =
         ExecutionCheckpoint::decode(slice(&mut input, MAX_CONTINUATION_CHECKPOINT_BYTES)?)?;
+    checkpoint.capacity.ensure_proof_transport()?;
     let count = input.count(376)?;
     if count == 0 || count as u64 > MAX_TRANSITION_BLOCKS {
         return Err("binary transition block count exceeds its bound".into());
@@ -146,7 +160,7 @@ pub fn decode_checkpoint_transition(bytes: &[u8]) -> Result<CheckpointTransition
             gas_limit: input.u64()?,
         };
         let count = input.count(188)?;
-        if count == 0 || count > MAX_PENDING {
+        if count == 0 || count > checkpoint.capacity.max_pending {
             return Err("binary block transaction count exceeds its bound".into());
         }
         let mut transactions = Vec::with_capacity(count);
@@ -159,7 +173,7 @@ pub fn decode_checkpoint_transition(bytes: &[u8]) -> Result<CheckpointTransition
             let expected_receipt = decode_receipt(slice(&mut input, MAX_RECORD)?, None)?;
             transactions.push(TransitionInput {
                 transaction_hash,
-                raw_envelope_hex: format!("0x{}", hex::encode(raw)),
+                raw_envelope_hex: RawEnvelope::from_bytes(raw.to_vec())?,
                 expected_receipt,
             });
         }
@@ -169,7 +183,7 @@ pub fn decode_checkpoint_transition(bytes: &[u8]) -> Result<CheckpointTransition
             context,
             transactions,
         };
-        checkpoint_transition_block_bytes(&block)?;
+        checkpoint_transition_block_bytes_with_capacity(&block, checkpoint.capacity)?;
         blocks.push(block);
     }
     let head = read_head(&mut input)?;
@@ -205,17 +219,7 @@ fn slice<'a>(input: &mut Decoder<'a>, maximum: usize) -> Result<&'a [u8], String
     input.take(length)
 }
 
-fn raw_length(value: &str) -> Result<usize, String> {
-    let raw = value
-        .strip_prefix("0x")
-        .ok_or("missing private envelope prefix")?;
-    if raw.is_empty() || raw.len() > MAX_TRANSACTION_BYTES * 2 || raw.len() % 2 != 0 {
-        return Err("private envelope exceeds the supported byte bound".into());
-    }
-    Ok(raw.len() / 2)
-}
-
-fn receipt_bytes(receipt: &Receipt) -> Result<usize, String> {
+pub(super) fn receipt_bytes(receipt: &Receipt) -> Result<usize, String> {
     // Exact existing receipt encoding, including its block hash.
     let mut size =
         147 + usize::from(receipt.to.is_some()) * 20 + usize::from(receipt.contract.is_some()) * 20;

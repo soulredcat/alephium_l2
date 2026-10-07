@@ -1,14 +1,15 @@
 //! Exact encoded size of the execution checkpoint at the committed head.
 //!
-//! A batch can only be exported and proven when the checkpoint at its start,
-//! and the one its guest derives at its end, fit the continuation transport
-//! bound. Every committed head can start a batch, so the producer must refuse
-//! a block before committing it if the resulting checkpoint would not fit.
+//! Default/small development profiles retain the continuation transport guard.
+//! Expanded development profiles enforce their genesis-bound runtime size and
+//! remain explicitly unsupported by proof export. The producer refuses a block
+//! before committing if its resulting checkpoint would not fit its bound.
 //! The size is tracked incrementally from the block's stored changes and
 //! must equal `ReadView::execution_checkpoint()?.encode()?.len()`.
 //! Capacity also reserves the remaining growth of the 256-entry hash window,
 //! so filling state before height 255 cannot prevent state-preserving blocks.
 use super::{ReadView, block::StoredChange, encoding::slot_key};
+use crate::protocol::Account;
 use alloy_primitives::{Address, B256, keccak256};
 use fjall::Readable;
 use std::collections::{BTreeMap, btree_map::Entry};
@@ -19,6 +20,49 @@ const SLOT_BYTES: usize = 64;
 const CODE_HEADER_BYTES: usize = 36;
 const BLOCK_HASH_BYTES: usize = 40;
 const BLOCK_HASH_WINDOW: u64 = 255;
+
+type AccountRecord = Option<(Account, bool)>;
+type PriorRecord = (Address, AccountRecord);
+
+/// Previous account records loaded once during this commit's normalization.
+/// The borrow binds every entry to the exact immutable ReadView being used.
+pub(super) struct PriorAccounts<'view> {
+    view: &'view ReadView,
+    records: Vec<PriorRecord>,
+}
+
+impl<'view> PriorAccounts<'view> {
+    pub(super) fn new(view: &'view ReadView, count: usize) -> Self {
+        Self {
+            view,
+            records: Vec::with_capacity(count),
+        }
+    }
+
+    pub(super) fn load(&mut self, address: Address) -> Result<&AccountRecord, String> {
+        let record = self.view.account_record(address)?;
+        self.records.push((address, record));
+        Ok(&self.records.last().ok_or("missing loaded prior account")?.1)
+    }
+
+    fn matching(
+        &self,
+        view: &ReadView,
+        changes: &[StoredChange],
+    ) -> Result<&[PriorRecord], String> {
+        if !std::ptr::eq(view, self.view)
+            || self.records.len() != changes.len()
+            || self
+                .records
+                .iter()
+                .zip(changes)
+                .any(|((address, _), stored)| *address != stored.change.address)
+        {
+            return Err("prior accounts differ from the commit view or aligned changes".into());
+        }
+        Ok(&self.records)
+    }
+}
 
 /// A block refused because its resulting checkpoint would exceed the bound.
 /// Nothing was written.
@@ -52,6 +96,8 @@ fn live_code(hash: B256) -> bool {
 impl Capacity {
     pub(super) fn scan(view: &ReadView, limit: usize) -> Result<Self, String> {
         let checkpoint = view.execution_checkpoint()?;
+        // The real encoding includes the custom profile's 24-byte extension;
+        // incrementally changing state must retain that fixed header cost.
         let bytes = checkpoint.encode()?.len();
         if with_history_reserve(bytes, view.head.height)? > limit {
             return Err(
@@ -105,20 +151,20 @@ impl Capacity {
         &self,
         view: &ReadView,
         changes: &[StoredChange],
+        prior: &PriorAccounts<'_>,
         height: u64,
     ) -> Result<Next, String> {
         let mut added = 0usize;
         let mut removed = 0usize;
         let mut codes = BTreeMap::<B256, (u64, usize)>::new();
-        for stored in changes {
+        for (stored, (_, prior)) in changes.iter().zip(prior.matching(view, changes)?) {
             let change = &stored.change;
             let address = change.address;
-            let prior = view.account_record(address)?;
             if prior.is_none() {
                 added += ACCOUNT_BYTES;
             }
             let written = change.slots.iter().filter(|(_, value)| !value.is_zero());
-            match &prior {
+            match prior {
                 Some((account, false)) if account.storage_epoch == stored.epoch => {
                     for (slot, value) in &change.slots {
                         let present = view.get(slot_key(address, stored.epoch, *slot))?.is_some();
@@ -210,4 +256,72 @@ fn live_slots(view: &ReadView, address: Address, epoch: u64) -> Result<usize, St
         count += 1;
     }
     Ok(count)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{development, protocol::AccountChange, storage::Store};
+
+    #[test]
+    fn commit_priors_bind_present_and_absent_records_to_exact_view_and_order() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = Store::open(directory.path(), &development::genesis()).unwrap();
+        let view = store.view().unwrap();
+        let present = development::address();
+        let absent = Address::repeat_byte(0x77);
+        let mut prior = PriorAccounts::new(&view, 2);
+        assert!(
+            prior
+                .load(present)
+                .unwrap()
+                .as_ref()
+                .is_some_and(|(_, deleted)| !deleted)
+        );
+        assert!(prior.load(absent).unwrap().is_none());
+        let mut changes: Vec<_> = [present, absent]
+            .into_iter()
+            .map(|address| StoredChange {
+                change: AccountChange {
+                    address,
+                    code_hash: keccak256([]),
+                    ..Default::default()
+                },
+                epoch: 0,
+            })
+            .collect();
+        let capacity =
+            Capacity::scan(&view, view.capacity().producer_checkpoint_bytes().unwrap()).unwrap();
+        let next = capacity.after(&view, &changes, &prior, 1).unwrap();
+        assert_eq!(
+            next.bytes,
+            capacity.bytes() + ACCOUNT_BYTES + BLOCK_HASH_BYTES
+        );
+        assert!(capacity.after(&view, &changes[..1], &prior, 1).is_err());
+        // An equivalent cloned snapshot is not this commit's borrowed view.
+        assert!(capacity.after(&view.clone(), &changes, &prior, 1).is_err());
+        changes.reverse();
+        assert!(capacity.after(&view, &changes, &prior, 1).is_err());
+    }
+
+    #[test]
+    fn commit_priors_never_cache_failed_reads_as_absence() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut store = Store::open(directory.path(), &development::genesis()).unwrap();
+        let view = store.view().unwrap();
+        let mut prior = PriorAccounts::new(&view, 1);
+        let raw = vec![1, 2, 3];
+        store.fail_next_commit_for_test();
+        assert!(
+            store
+                .admit(crate::protocol::Pending {
+                    hash: keccak256(&raw),
+                    sender: development::address(),
+                    raw
+                })
+                .is_err()
+        );
+        assert!(prior.load(development::address()).is_err());
+        assert!(prior.records.is_empty());
+    }
 }

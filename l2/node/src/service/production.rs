@@ -1,16 +1,77 @@
-//! Block production. Every committed block must stay provable: it carries
-//! executed transactions only, and its resulting execution checkpoint must
-//! fit the continuation bound that a proven batch starting there needs.
-//! Space for the remaining historical hash window is reserved before growth.
+//! Block production persists executed transactions within canonical record and
+//! checkpoint byte bounds, reserving the remaining historical hash window.
+//! Finite guest execution/proving resources require separate qualification;
+//! passing these storage bounds alone does not establish proofability.
 use super::Core;
 use crate::{
     execution,
     protocol::*,
     storage::{CapacityExceeded, ReadView},
 };
+use std::time::Instant;
 
 const CAPACITY_REASON: &str =
     "state capacity exhausted: the resulting execution checkpoint would exceed its bound";
+
+/// The same conservative reservation applies to admission and block selection.
+#[derive(Clone, Copy)]
+pub(super) struct BlockBudget {
+    gas: u64,
+    bytes: usize,
+    capacity: Capacity,
+    overflowed: bool,
+}
+
+impl BlockBudget {
+    pub(super) fn new(capacity: Capacity) -> Self {
+        Self {
+            gas: 0,
+            bytes: 4096,
+            capacity,
+            overflowed: false,
+        }
+    }
+
+    pub(super) fn record(&mut self, gas: u64, raw_bytes: usize) {
+        match self.gas.checked_add(gas) {
+            Some(next) => self.gas = next,
+            None => self.overflowed = true,
+        }
+        match self
+            .bytes
+            .checked_add(raw_bytes)
+            .and_then(|next| next.checked_add(40))
+        {
+            Some(next) => self.bytes = next,
+            None => self.overflowed = true,
+        }
+    }
+
+    pub(super) fn can_reserve(self, gas: u64, raw_bytes: usize) -> bool {
+        if self.overflowed {
+            return false;
+        }
+        let Some(gas) = self.gas.checked_add(gas) else {
+            return false;
+        };
+        let Some(bytes) = self
+            .bytes
+            .checked_add(raw_bytes)
+            .and_then(|next| next.checked_add(40))
+        else {
+            return false;
+        };
+        gas <= self.capacity.block_gas && bytes <= self.capacity.block_bytes
+    }
+
+    fn reserve(&mut self, gas: u64, raw_bytes: usize) -> bool {
+        if !self.can_reserve(gas, raw_bytes) {
+            return false;
+        }
+        self.record(gas, raw_bytes);
+        true
+    }
+}
 
 impl Core {
     pub(super) fn produce(&mut self) -> Result<(), String> {
@@ -18,7 +79,13 @@ impl Core {
             return Ok(());
         }
         let view = self.handle.view()?;
-        let selected = self.select(&view)?;
+        let selection_started = Instant::now();
+        let selection = self.select(&view);
+        self.handle
+            .metrics
+            .selection
+            .record(selection_started.elapsed());
+        let selected = selection?;
         let context = self.context()?;
         if self.build(&view, &selected, context)?.is_err() {
             // Near the bound, retry the oldest intent alone. One that cannot
@@ -31,6 +98,7 @@ impl Core {
         }
         // Store order is admission order; resolved intents have left it.
         self.pending = self.store.pending()?;
+        self.retain_pending_preparations()?;
         let new_view = self.store.view()?;
         self.publish(new_view)
     }
@@ -38,17 +106,12 @@ impl Core {
     /// The admission-ordered prefix that fits the block gas and byte budgets.
     fn select(&self, view: &ReadView) -> Result<Vec<Pending>, String> {
         let mut selected = Vec::new();
-        let mut reserved_gas = 0u64;
-        let mut bytes = 4096usize;
+        let mut budget = BlockBudget::new(view.capacity());
         for pending in &self.pending {
-            let info = execution::inspect_for_chain(&pending.raw, view.chain_id())?;
-            if reserved_gas.saturating_add(info.gas_limit) > BLOCK_GAS
-                || bytes.saturating_add(pending.raw.len() + 40) > BLOCK_BYTES
-            {
+            let info = self.prepared_pending(pending, view.chain_id())?.info();
+            if !budget.reserve(info.gas_limit, pending.raw.len()) {
                 break;
             }
-            reserved_gas += info.gas_limit;
-            bytes += pending.raw.len() + 40;
             selected.push(pending.clone());
         }
         if selected.is_empty() {
@@ -65,8 +128,18 @@ impl Core {
         selected: &[Pending],
         context: BlockContext,
     ) -> Result<Result<(), CapacityExceeded>, String> {
-        let raws: Vec<_> = selected.iter().map(|pending| pending.raw.clone()).collect();
-        let result = execution::execute_block(view.clone(), &raws, context)?;
+        let prepared: Vec<_> = selected
+            .iter()
+            .map(|pending| self.prepared_pending(pending, view.chain_id()).cloned())
+            .collect::<Result<_, _>>()?;
+        let execution_started = Instant::now();
+        let executed = execution::execute_prepared_block(view.clone(), &prepared, context);
+        self.handle
+            .metrics
+            .execution
+            .record(execution_started.elapsed());
+        let result = executed?;
+        self.handle.metrics.executed(result.receipts.len());
         // A rejected intent changes no state and no receipt, but the transition
         // witness cannot represent one, so a block containing it could never be
         // proven. Commit only executed transactions and resolve rejections
@@ -80,8 +153,17 @@ impl Core {
                 receipts: result.receipts,
                 rejected: Vec::new(),
             };
-            if let Err(exceeded) = self.store.commit_bounded(commit)? {
+            let commit_started = Instant::now();
+            let committed = self.store.commit_bounded(commit);
+            self.handle
+                .metrics
+                .durable_block_commit
+                .record(commit_started.elapsed());
+            if let Err(exceeded) = committed? {
                 return Ok(Err(exceeded));
+            }
+            if let Some(phases) = self.store.last_commit_phases() {
+                self.handle.metrics.committed(phases);
             }
         }
         for (hash, reason) in &result.rejected {

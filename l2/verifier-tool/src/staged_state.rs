@@ -37,7 +37,7 @@ pub fn checked_fields(
     let state = &contracts[0];
     if state["bytecode"] != compiled.bytecode
         || state["codeHash"] != *code_hash
-        || state["immFields"] != json!([word(FP_MODULUS)])
+        || state["immFields"] != json!(fixture.immutable_fields())
         || state["asset"] != asset()
     {
         return Err("VM returned executable, immutable fields or virtual asset differ".into());
@@ -84,7 +84,10 @@ pub fn checked_fields(
     if Some(&method) == compiled.public_methods.get("finish") && fields[1..] != previous[1..] {
         return Err("Finish altered fields outside its accepted status".into());
     }
-    if Some(&method) == compiled.public_methods.get("getAcceptance") && fields != previous {
+    if (Some(&method) == compiled.public_methods.get("getAcceptance")
+        || Some(&method) == compiled.public_methods.get("getBinding"))
+        && fields != previous
+    {
         return Err("Read-only acceptance method changed state".into());
     }
     Ok(fields.clone())
@@ -141,7 +144,7 @@ impl<'a> Run<'a> {
     pub(crate) fn request(&self, method: usize, args: Vec<Value>, fields: &[Value]) -> Value {
         json!({
             "group": 0, "address": self.fixture.address, "bytecode": self.compiled.bytecode,
-            "initialImmFields": [word(FP_MODULUS)], "initialMutFields": fields,
+            "initialImmFields": self.fixture.immutable_fields(), "initialMutFields": fields,
             "initialAsset": asset(), "methodIndex": method, "args": args,
             "existingContracts": [], "inputAssets": []
         })
@@ -287,7 +290,7 @@ pub fn canonical_child_fields(
     if state["address"] != fixture.address
         || state["bytecode"] != compiled.bytecode
         || state["codeHash"] != compiled.evidence["productionCodeHash"]
-        || state["immFields"] != json!([word(FP_MODULUS)])
+        || state["immFields"] != json!(fixture.immutable_fields())
         || state["asset"] != asset()
         || state["mutFields"] != json!(zero)
     {

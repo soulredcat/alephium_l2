@@ -1,0 +1,73 @@
+--- a/risc0/zkvm/src/host/server/prove/prover_impl.rs
++++ b/risc0/zkvm/src/host/server/prove/prover_impl.rs
+@@ -61,6 +61,7 @@
+         ctx: &VerifierContext,
+         elf: &[u8],
+     ) -> Result<ProveInfo> {
++        eprintln!("P4 proof progress: stage=execute");
+         let session = ExecutorImpl::from_elf(env, elf)?.run()?;
+         self.prove_session(ctx, &session)
+     }
+@@ -80,13 +81,19 @@
+             &self.opts.hashfn
+         );
+ 
++        let progress_started = std::time::Instant::now();
++        let progress_total = session.segments.len();
++        eprintln!("P4 proof progress: stage=segments; total={progress_total}");
+         let mut segments = Vec::new();
+-        for segment_ref in session.segments.iter() {
++        for (progress_index, segment_ref) in session.segments.iter().enumerate() {
+             let segment = segment_ref.resolve()?;
+             for hook in &session.hooks {
+                 hook.on_pre_prove_segment(&segment);
+             }
+             segments.push(self.prove_segment(ctx, &segment)?);
++            if progress_index == 0 || (progress_index + 1) % 64 == 0 || progress_index + 1 == progress_total {
++                eprintln!("P4 proof progress: stage=segments; complete={}; total={progress_total}; elapsed_ms={}", progress_index + 1, progress_started.elapsed().as_millis());
++            }
+             for hook in &session.hooks {
+                 hook.on_post_prove_segment(&segment);
+             }
+@@ -181,6 +188,7 @@
+             });
+         }
+ 
++        eprintln!("P4 proof progress: stage=recursion; segments={progress_total}; elapsed_ms={}", progress_started.elapsed().as_millis());
+         let (succinct_receipt, work_receipt) = match session.povw_job_id.is_some() {
+             true => {
+                 let work_receipt = self.composite_to_succinct_povw(&composite_receipt)?;
+@@ -202,7 +210,9 @@
+             });
+         }
+ 
++        eprintln!("P4 proof progress: stage=groth16; elapsed_ms={}", progress_started.elapsed().as_millis());
+         let groth16_receipt = self.succinct_to_groth16(&succinct_receipt)?;
++        eprintln!("P4 proof progress: stage=complete; elapsed_ms={}", progress_started.elapsed().as_millis());
+ 
+         if self.opts.receipt_kind == ReceiptKind::Groth16 {
+             let receipt = Receipt::new(
+@@ -285,6 +295,11 @@
+     fn lift(&self, receipt: &SegmentReceipt) -> Result<SuccinctReceipt<ReceiptClaim>> {
+         let receipt = lift(receipt)?;
+         receipt.verify_integrity().context("verify lift")?;
++        static COMPLETED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
++        let completed = COMPLETED.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
++        if completed == 1 || completed % 64 == 0 {
++            eprintln!("P4 proof progress: stage=lift; complete={completed}");
++        }
+         Ok(receipt)
+     }
+ 
+@@ -302,6 +317,11 @@
+     ) -> Result<SuccinctReceipt<ReceiptClaim>> {
+         let receipt = join(a, b)?;
+         receipt.verify_integrity().context("verify join")?;
++        static COMPLETED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
++        let completed = COMPLETED.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
++        if completed == 1 || completed % 64 == 0 {
++            eprintln!("P4 proof progress: stage=join; complete={completed}");
++        }
+         Ok(receipt)
+     }
+ 

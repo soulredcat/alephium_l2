@@ -1,171 +1,134 @@
-# Continuation handoff: P4-P8
+# Development proof handoff
 
-Updated 5 October 2026. **MAINNET RUNNING is incomplete; mainnet implementation and proving remain paused.** The operator authorized sequential PR review, necessary fixes and scoped tests for #2-#13. This does not authorize deployment, spending or resuming the interrupted proof. WSL and the original development instances remain untouched by this review.
+Updated 7 October 2026. **P4.1-P4.3 are complete for one fresh 10-TX development proving fixture.** Mainnet and P5-P8 acceptance remain incomplete. This document describes published source interfaces and curated recorded outcomes; private execution inputs, databases, receipts, proofs, local identities, binary installations and raw evidence are not distributed.
 
-Read [README](../README.md) and [portable status/pins](../handoff/status.json). Extend the existing implementation without repeating P1-P3 or replacing the runtime/proof system. Every P4-P8 item remains unchecked.
+## Acceptance boundary
 
-## What the evidence establishes
+The ten transactions consist of six genesis-funded wallet transfers and root transfer/deploy/write/revert, with no setup funding transactions. Actual CUDA recovery/address derivation retained the full CPU oracle; ordered REVM, exact integer accounting, durable ACK/receipts, reopen and service restart passed. The five-block fixture has seven initial/16 final accounts, 295,496 executed gas and a 2,326-byte final checkpoint.
 
-| Area | Accepted evidence and remaining boundary |
-| --- | --- |
-| P1-P3 | Original-host development transfer, deploy/call/write/revert, four receipts, exact accounting and restart consistency passed. No Alephium settlement, real funds, or current public endpoint is established. |
-| C16 | Historical receipt passed synthetic staged VM and canonical factory creation/acceptance. This is neither an L2 transition proof nor live/public-testnet settlement. |
-| P4 schema 2 | Four runtime blocks matched native portable-core replay, suffix chaining and mutations. Older guest compilation/kernel packaging passed. Proving was interrupted without a receipt. |
-| Current witness schema 3 / execution schema 2 | CI regenerated runtime fixtures and passed portable-core batch, checkpoint/suffix/mutation and 11-case ecrecover agreement checks. Local Windows profile/replay and SDK/restart tests passed. Guest compilation/execution and an actual proof remain unverified. |
+The current guest produced a real Groth16 receipt with development mode disabled: **30,194,287 user cycles / 68 segments**, matching the independently derived native journal. Independent native BN254 pairing and **69 same-receipt canonical synthetic target cases** passed, with 47 successes/22 expected rejections. Maximum positive VM gas was 1,642,428; child code was 31,216 bytes. All 30 canonical journal fields and source/P6 message rules were reconciled.
 
-Continuation transport permits **8 MiB checkpoint input within a 16 MiB binary witness**, with bounded batches, storage epochs and rolling BLOCKHASH history. Producer admission budgets, state-growth/recovery headroom and release operating limits remain unqualified.
+These are development proof and synthetic VM results. Public settlement, persistent canonical continuity, available public data, backing/exits, independent release audit and mainnet are not accepted. Ten is a test input count, not a capacity limit. The retained 1,000-TX Halted(0) execution at 2,878,176,684 cycles/6,397 segments is not proven; 1,000-TX+ proving and the 1M-TX/block target remain unqualified.
 
-The historical schema-2 image beginning `16b7cbb0` is not the current guest identity. Rebuild, package, review and repin schema 3; historical compilation does not validate changed shared code.
+## Statement, messages and time
 
-The runtime's **execution/storage schema 2** removes phantom account tombstones and requires a fresh development chain. This version is distinct from transition witness schemas 1/2/3 and is bound into genesis, local commits, and proof profiles. Old execution-schema-1 stores/backups are refused before opening Fjall; keep their original binaries/data intact, including the P1-P3 baseline. Never relabel their ownership markers. Regenerate transition fixtures for the new profile and rebuild/repin the guest; previous genesis IDs, replay evidence and guest pins do not validate this profile.
+The canonical statement is defined in [batch_journal.rs](../l2/proof/core/src/batch_journal.rs), with schema-four execution in [large_checkpoint.rs](../l2/proof/core/src/large_checkpoint.rs). It binds version/scope/RPC/engine, explicit L1 domain, L2 chain/genesis, execution profile, batch/parent/new head, old/new state, counts/balance digests, ordered transactions/context/receipts, inbox/outbox and DA. The proof image authenticates the program; consumers independently pin the intended image/domain/genesis/profile and accepted old root/parent.
 
-## Source map and toolchains
+Schema-four roots bind the exact capacity-derived limits and complete canonical checkpoint. The DA commitment covers domain/profile/limits, parent checkpoint, ordered contexts and raw inputs. A transition-file hash or output checkpoint hash cannot replace this reconstruction commitment.
 
-| Component | Existing implementation / pin |
-| --- | --- |
-| Runtime and SDK | `l2/node`, `l2/sdk`; root Rust 1.97.1 and locked REVM 43.0.3/Fjall 3.1.12/Alloy dependencies. |
-| Export and encoding | Node `operator/transition*`, `protocol/checkpoint*`, `protocol/{encoding,head_codec,receipt_codec}`. |
-| Proof | Independent workspace `l2/proof/{core,guest,host}` with its own lockfile and `.cargo/config.toml`; core reuses node source through explicit path modules. |
-| Guest/prover | RISC Zero 3.0.3 at revision `14b5d588dd01cf4f7ba804d8bb0a61264e6ae2c6`; guest Rust baseline 1.94.1; official v1compat kernel packaging. See status metadata for historical artifact pins, not current acceptance. |
-| Target verification | `l2/verifier-tool`, `l2/contracts/alephium/verifier`; Java and caller-supplied official Ralph compiler v4.7.0, SHA-256 `a8b221ee71b36a1a960da17b0eb32a490ebf8c4a034414a46d0ed57957e832ac`. |
+Current inbox/outbox counts are zero. Their empty commitments include message kind, L1 domain and L2 genesis; arbitrary host-supplied nonempty roots/events cannot authorize credit or withdrawal. P6 must implement and repin runtime/guest/settlement together:
 
-Required source/reference fixtures are under `l2/`. Private witnesses, databases, signing records, receipts and tool binaries/toolchains are excluded. Recreate fixtures after resumption. Preserve licenses: receipt/key compositions and some tooling are GPL-3.0-or-later; Gnark-derived arithmetic retains Apache-2.0.
+- Deposits bind canonical escrow/event identity, both domains, asset/exact amount, recipient and ordered inbox position; confirmed credit and consumption occur once.
+- Withdrawals arise from authorized execution, debit/burn liability once and bind destination, asset, amount, sequence and complete domain.
+- L1 release uses eligible proved outbox and atomic domain-bound nullifiers, with backing separate from fees and orphan handling.
+- Forced inputs preserve execution/ordering/replay semantics without privileged cooperation; enforced inclusion/recovery and custody parameters remain P6/P7 work.
 
-## Next concrete sequence after human resumption
+Producer timestamps are Unix seconds clamped to the preceding timestamp. Replay requires exact parent/next height, nondecreasing timestamp and matching gas profile; timestamp/number/gas are committed. This does not authenticate L1 time. **A3** remains open for P6 forced-input execution or guest-validated rejection; local unproven discards cannot satisfy it. **A6** remains open for P5.1 L1-relative timestamp eligibility with a declared drift. P4 binding/specification does not resolve those later enforcement requirements.
 
-1. Confirm source/pins/resources; assign one build/ports/integration coordinator and bounded independent reviewers.
-2. Reuse the native agreement CI from PR #6. If shared execution changes, rebuild affected packages and regenerate fixtures to recheck binary encoding, hidden state, suffix roots, mutations and native secp256k1 versus portable k256.
-3. Build, package, review and repin the current guest; historical guest artifacts do not cover execution schema 2.
-4. Run bounded **execution-only preflight** with `--execute-only` in place of `--output`. It uses the pinned `ExternalProver` with shared input framing/cycle ceiling, requires `Halted(0)` and the exact native journal, writes no artifacts and needs no Docker. Ordinary `r0vm` CLI and `--receipt-kind composite` still prove. Check checkpoint/precompile and representative boundary inputs; resolve disagreement and recovery headroom before proving, without a benchmark campaign.
-5. Generate a real bounded local Groth16 receipt; independently verify image/journal and exercise `--staged-actual`. Close P4 before public settlement; preserve failures and distinguish synthetic from actual network evidence.
+## Reproduction prerequisites
 
-These Bash templates require configured toolchains and explicit resumption; they do not claim current-source success. Start at repository root, use new private directories, and never print inputs:
+Root Rust is 1.97.1; guest baseline is RISC Zero r0.1.94.1, RISC Zero SDK 3.0.3 at revision `14b5d588dd01cf4f7ba804d8bb0a61264e6ae2c6`, with official v1compat kernel packaging. [Proof Cargo.toml](../l2/proof/Cargo.toml) pins stable legacy-syscall k256/crypto-bigint forks. NVCC/NVIDIA driver, host C++ compiler, native secp256k1 C, local Groth16 components and Java/official Ralph v4.7.0 compiler are external dependencies.
 
-```bash
-umask 077
-work="$PWD/.local/handoff-repro"
-mkdir -p "$work"   # Children below must not already exist.
-L2_TRANSITION_OUTPUT="$work/transition" \
-  cargo test -p alephium-l2-node --locked --test transition
-L2_PRECOMPILE_OUTPUT="$work/precompile" \
-  cargo test -p alephium-l2-node --locked --test precompile_transition
-L2_CHECKPOINT_FIXTURE="$work/transition" \
-L2_CHECKPOINT_OUTPUT="$work/checkpoint" \
-  cargo test -p alephium-l2-node --locked --test checkpoint_transition -- --ignored
-(
-  cd l2/proof
-  L2_TRANSITION_INPUT="$work/transition/export/transition.json" \
-    cargo test -p alephium-l2-transition-core --locked --test batch
-  L2_PRECOMPILE_INPUT="$work/precompile/export/transition.json" \
-    cargo test -p alephium-l2-transition-core --locked --test precompile
-  L2_CHECKPOINT_INPUT_ROOT="$work/checkpoint" \
-    cargo test -p alephium-l2-transition-core --locked --test checkpoint
-)
+The recorded node capacity was **3,000,000,000 gas / 33,554,432 payload bytes / 1,000 pending**, with explicit `--max-checkpoint-bytes 8388608`. Its schema-four limits are 16,777,216 checkpoint bytes, 35,115,008 transcript bytes, 52,940,800 input bytes and 8,388,608-byte frames. The producer allowance and checkpoint transport ceiling are distinct. Profile/genesis changes require fresh state; schema-1 stores/backups are not migrated.
+
+Original-host fixtures enforce project E-drive/mount and ownership guards. Provide fresh absolute local output roots, supported CUDA hardware and installed pinned tools yourself; no private original input is included. Inspect [storage guards](../l2/node/tests/support/p4_development_storage.rs). Platform portability, private ACLs/directory synchronization and physical-power-loss durability require their own qualification. CPU/native CI does not accept GPU/proving/maximum-capacity behavior. External-input harnesses, including `da_package`, are manual integration targets excluded from automatic prover library/binary CI checks.
+
+For a fresh matching GPU fixture, the existing ignored aggregate target is:
+
+```powershell
+$env:L2_P4_DEVELOPMENT_OUTPUT = '<new absolute owned project-drive output>'
+cargo test --release -p alephium-l2-node --features cuda --locked --test p4_closure -- --ignored
 ```
 
-Core tests require those variables; blanket workspace tests are insufficient. Checkpoint export consumes the four-block backup and creates genesis/height-two inputs. Keep outputs private; verify filesystem access restrictions. Historical DrvFS reported 0777 despite requested Unix modes.
+The output root must be new and its parent must exist. The source harness persists unsigned intent before signing, uses development-only identities, starts no HTTP listener, stops/joins owned services and exports a private backup/witness. This command is an interface template, not a claim that a public runner reproduced the recorded receipt. Supply local inputs explicitly for native/proof stages; do not upload or print signed envelopes, signing material or proof payloads.
 
-Keep one consistent Cargo home/toolchain per target directory. Switching source-cache roots into a shared target caused duplicate fingerprints and shared build-script output invalidation; do not clean caches or repeat unaffected builds to work around it.
-
-Build from `l2/proof` to apply its target configuration. Set `RISC0_RUST_TOOLCHAIN` to the reviewed guest toolchain, not the ordinary host compiler:
+Build/package the guest from `l2/proof`:
 
 ```bash
-(
-  cd l2/proof
-  CARGO_TARGET_DIR="$work/guest-target" \
-    cargo +"${RISC0_RUST_TOOLCHAIN:?set reviewed guest toolchain}" build \
-      --locked --release -p alephium-l2-transition-guest \
-      --target riscv32im-risc0-zkvm-elf
-  cargo run -p alephium-l2-transition-prover --locked --example package_guest -- \
-    --user-elf "$work/guest-target/riscv32im-risc0-zkvm-elf/release/alephium-l2-transition-guest" \
-    --output "$work/guest-package"
-)
+cargo +"${RISC0_RUST_TOOLCHAIN:?set reviewed guest toolchain}" build \
+  --locked --release -p alephium-l2-transition-guest --target riscv32im-risc0-zkvm-elf
+cargo run -p alephium-l2-transition-prover --locked --example package_guest -- \
+  --user-elf "$built_guest_elf" --output "$new_guest_package"
 ```
 
-The helper converts raw ELF to official kernel-packaged `ProgramBinary`. Review its manifest/image and pass execution-only preflight before continuing.
+Raw ELF alone is not the packaged program. Review the generated image/program and derive the native expected journal independently from your fresh fixture; retain approved pins in trusted local configuration. A receipt or downloaded manifest cannot select its own trusted image/domain/parent.
 
-Preflight the packaged guest with the same environment restrictions as the proof command below, replacing `--output "$work/proof"` with `--execute-only`. It prints only the exit status, user cycles/segments against the ceiling and the public journal SHA-256.
+## Patched CUDA prover
 
-For an authorized proof, supply independent reviewed `expected_image_id` and `prover_sha256` values, plus an absolute local `RISC0_SERVER_PATH`. Use only local IPC and a local Docker socket. Remove development mode, Bonsai configuration, inherited profiler/work-directory overrides, and remote Docker routing; disable tracing/backtraces. The host enforces these restrictions and an existing 268,435,456-cycle ceiling, which is not a qualified runtime SLA.
+The source authority is [SDK patches.rs](../l2/proof/host/src/backend/patches.rs), in this exact order:
+
+1. `risc0-3.0.3-sppark-init.patch`
+2. `risc0-3.0.3-private-prove-error-chain.patch`
+3. `risc0-3.0.3-combos-prepare-sync.patch`
+4. `risc0-3.0.3-private-division-diagnostic.patch`
+5. `risc0-3.0.3-zeroize-kernels.patch`
+6. `risc0-3.0.3-zeroize-declarations.patch`
+7. `risc0-3.0.3-zeroize-ffi.patch`
+8. `risc0-3.0.3-production-private-division.patch`
+9. `risc0-3.0.3-safe-proof-progress.patch`
+
+Use an owned pristine SDK checkout. Verify each patch file and before/after source SHA-256 against the authority; check then apply with `git -C "$sdk_checkout" apply --check "$patch_path"` followed by the same command without `--check`. Order matters: zeroize-ffi starts from combos-prepare-sync, and production division starts from the diagnostic source.
+
+The separate [dependency authority](../l2/proof/host/src/backend/dependency_patches.rs) requires the single cumulative `sppark-0.1.12-division-reader-completion.patch`. Verify pristine package checksum and exact header before/after hashes. Apply only that original-to-cumulative patch to an owned dependency source; ensure the SDK build resolves it. Do not apply the historical block-only patch as well or modify shared caches. Four block barriers and loop-end cooperative grid completion protect shared/global scratch reader epochs.
+
+The production division patch removes diagnostic CPU copies/readbacks while retaining GPU zero-remainder checks, synchronization fixes and receipt integrity. This is separate from the **node's full CPU oracle**, which remains enabled. Do not describe historical diagnostic-prover results as the current production profile.
+
+Rebuild the owned native `risc0-sys` package after native changes, then relink the selected CUDA-only/no-default-feature `r0vm`. Preserve compiler/toolkit/profile/lock consistency; inspect actual rebuilt native code and run only the affected coherent qualification bundle. Source declarations and Cargo fingerprints are not reproducible-build attestation. Never qualify skipped kernels, development/fake receipts or disabled assertions.
+
+[backend.rs](../l2/proof/host/src/backend.rs) requires a locally reviewed **schema-2 build manifest**: SDK version/revision, exact nine SDK declarations, one dependency declaration, executable SHA-256, backend CUDA, `cargo_features=["cuda"]`, default features false, circuit debug false, and local `Risc0Groth16` 0.1.0 directory/file pins. Required component files are `preprocessed_coeffs.bin`, `fuzzed_msm_results.bin`, `stark_verify_final.zkey` and `stark_verify_graph.bin`. Compute/review your own executable/component/manifest hashes locally; a matching manifest does not prove native build lineage. Do not distribute manifests containing installation paths or private execution evidence.
+
+The recorded proof profile used two workers within the detected CPU budget, segment po2 19, cycle ceiling 4,294,967,296 and an **external aggregate resident-RAM cap of 6 GiB with no swap**. The proof CLI itself does not enforce that RSS cap. Configure owned isolation/cancellation/cleanup before running; measure elapsed time without an inherited overall deadline.
+
+Use explicit local IPC, absolute local `RISC0_SERVER_PATH`, tracing/backtraces off, and remove development mode, Bonsai/remote routing and inherited dump/profiler/work-directory overrides. Under that configured resource policy, from `l2/proof`:
 
 ```bash
-(
-  cd l2/proof
-  RISC0_PROVER=ipc RISC0_EXECUTOR=ipc RUST_LOG=off \
-  RUST_BACKTRACE=0 RUST_LIB_BACKTRACE=0 \
-    cargo run -p alephium-l2-transition-prover --locked -- \
-      --input "$work/checkpoint/export/transition.bin" \
-      --guest "$work/guest-package/guest.bin" \
-      --expected-image-id "${expected_image_id:?review current program identity}" \
-      --prover-sha256 "${prover_sha256:?review local r0vm identity}" \
-      --output "$work/proof"
-)
+RISC0_PROVER=ipc RISC0_EXECUTOR=ipc RUST_LOG=off \
+RUST_BACKTRACE=0 RUST_LIB_BACKTRACE=0 \
+cargo run -p alephium-l2-transition-prover --locked -- \
+  --input "$private_transition" --guest "$packaged_guest" \
+  --expected-image-id "$reviewed_image_id" --prover-sha256 "$reviewed_prover_sha256" \
+  --prover-backend cuda --prover-build-manifest "$local_build_manifest" \
+  --prover-build-manifest-sha256 "$reviewed_manifest_sha256" \
+  --workers 2 --max-cycles 4294967296 --execute-only
 ```
 
-Verifier input is private `seal.bin`, `imageid.bin`, `journal.bin`, `journal_digest.bin`, and `report.json`. Independently pin canonical journal SHA-256; receipt-supplied identity pins are not trusted L2 identity.
+For an appropriately reviewed proof job, replace `--execute-only` with `--output "$new_private_proof_directory"`. Verify the actual receipt and exact independently derived journal; do not infer success from process exit alone. The actual-target harness requires independent image/journal pins and a separately verified read-only route; it uses a fixed loopback network-0 synthetic VM path, not deployment. Offline `--staged-factory-compile` is available. Reuse one verified receipt for the aggregate rejection cases.
 
-**Only on the original host with its existing read-only authorization and verified endpoint**, the target template is:
+## Retained native DA foundation
+
+`l2-da` exports canonical schema-four reconstruction bytes and reconstructs without a sequencer database. The transcript's SHA-256 equals the statement's DA commitment; transition-input/output-checkpoint hashes do not substitute. Capacity, identity, ancestry, framing, exact lengths and EOF are checked. Package completion/retention metadata is create-only and synchronized; missing/conflicting markers refuse reuse.
 
 ```bash
-cargo run -p alephium-l2-verifier-tool --locked -- \
-  --mainnet-readonly --staged-actual "$ralphc_jar" "$work/target-evidence" \
-  "$work/proof" "$expected_image_id" "$expected_journal_sha256"
+# From l2/proof:
+cargo run --release --locked -p alephium-l2-transition-prover --bin l2-da -- \
+  export --input "$private_transition" --output "$new_package"
+cargo run --release --locked -p alephium-l2-transition-prover --bin l2-da -- \
+  reconstruct --package "$package" --expected "$reviewed_candidate_json" \
+  --expected-sha256 "$reviewed_candidate_json_sha256" \
+  --block-gas 3000000000 --block-bytes 33554432 --max-pending 1000 \
+  --output "$new_reconstruction"
 ```
 
-The current transport hardcodes synchronized network 0 at `127.0.0.1:12973` and performs synthetic `contracts/test-contract`, with no signing/deployment. A cloud runner has no such endpoint by assumption. Do not run this command there or silently substitute networks. `--staged-factory-compile` is the available offline compilation mode. Public-testnet simulation previously returned HTTP 403; accessible public testnet and applicable live authority are still required for P5/P6.
+Select the candidate journal independently from trusted genesis/profile/runtime context; the manifest cannot choose its own pins. Native package reports deliberately keep `proof_accepted=false`, `settlement_eligible=false` and `public_data_available=false`. Public retention/retrieval and canonical L1 parent eligibility remain P5/P6 work. This local foundation does not complete P5.
 
-## Fixed remaining checklist
+## Fixed phase checklist
 
-Maintain this checklist and `handoff/status.json`; the operator requested limited documentation, so do not recreate the historical planning archive. Current schemas accept empty inbox/outbox commitments only. P6 must authenticate confirmed, domain-bound deposits and derive authorized withdrawal debits/outbox entries in both runtime and guest; host-supplied message roots never substitute for execution.
-
-The current factory is a development singleton. A cloned verifier can initialize forged accepted state, so consumers must pin the canonical factory/template/derived child and exact statement, not merely a matching code hash. Reusable sessions and abandonment policy remain P5 work.
-
-| Done | Task | Required output |
+| Done | Task | Required output / current boundary |
 | --- | --- | --- |
-| [ ] | P4.1 Actual execution | Authenticated state/witnesses and versioned statement binding L1/L2 identity, profile, ancestry, old/new state, inputs/context, inbox/outbox and DA; define P6 message rules. |
-| [ ] | P4.2 Real proof | Pin current guest/program/prover; prove actual transfer and supported contracts, matching native/guest execution and resource/continuation bounds with unchanged security parameters. |
-| [ ] | P4.3 Staged acceptance | Canonical factory accepts the actual proof; changed state/statement/proof, forged origin and invalid order fail within target limits. Historical receipt success is insufficient. |
-| [ ] | P5.1 Settlement and data | Consecutive batches with canonical ancestry and authenticated independent reconstruction. Missing data blocks eligibility; retain unsettled and withdrawal/recovery data through sequencer loss. |
-| [ ] | P5.2 Publisher lifecycle | Durable intent before signing, submit once, reconcile ambiguity, canonical confirmations, reorg/descendant invalidation, bounded progress/abandonment; stuck singleton sessions cannot prevent later eligible batches. |
-| [ ] | P5.3 Public-testnet integration | Actually settle two consecutive real batches through reusable sessions; reject stale parents/replay; independently reconstruct matching state; check bounded restart/ambiguity/reorg behavior with honest observation labels. |
-| [ ] | P6.1 Custody/deposits | One approved ALPH asset: authenticated confirmed domain-bound inbox, credit once, exact backing and reorg handling; separate escrow from fees; enforce identical runtime/guest message semantics and repin affected artifacts. |
-| [ ] | P6.2 Withdrawals/recovery | Eligible-root release with atomic nullifiers; permissionless continuation/exit for accounts and supported contract-held rights; enforced forced-input deadline or proven equivalent defeating active censorship without privileged cooperation. |
-| [ ] | P6.3 Round trip | Authorized public-testnet deposit/execution/proof/data/withdrawal; sequencer outage/censorship and independent recovery; invalid claims, duplicate credit/release and orphaned inputs preserve backing; revalidate changed proof/settlement semantics. |
-| [ ] | P7.1 Release profile | Reproducible existing-code release, fresh mainnet identities/genesis/allocations; explicit gas/fee/asset/confirmation parameters; matching VM/guest semantics and targeted reference checks. No development-state/key migration. |
-| [ ] | P7.2 Security/recovery | Independent audit of exact proof/settlement/bridge/recovery artifacts, remediation and affected retests; independent restore/failure qualification on actual OS/filesystem/storage; no unresolved critical/material release blocker. |
-| [ ] | P7.3 Launch package | Separate authorities; safe upgrade/pause/rotation and exits; bounded RPC/backlogs, alerts, retention/restore/reconciliation; gas versus backing, exact rounding and proof/DA payer; declared operating window, funding caps and fail-closed financial stops. |
-| [ ] | P8.1 Authorized deployment | Verify explicit mainnet deployment/funding/asset authority, network/code identities and caps; deploy approved artifacts and start the existing runtime with fresh state; preserve development/shared nodes. |
-| [ ] | P8.2 Actual mainnet flow | Usable public EVM client path; actual canonically accepted mainnet proofs, independent authenticated reconstruction, authorized bounded ALPH deposit/withdrawal with exact backing and no duplicate release. |
-| [ ] | P8.3 Bounded handover | Observe the declared window, settlement, alerts and reconciliation; verify recovery readiness and deliver endpoint, identities, commands, evidence and ownership. No inferred throughput claim. |
+| [x] | P4.1 Actual execution | Actual state/witness and all canonical statement bindings reconciled for the 10-TX fixture; current empty-message policy and P6 message rules specified. |
+| [x] | P4.2 Real proof | Current guest/program/prover and real Groth16 receipt match independent native execution under the declared development profile. |
+| [x] | P4.3 Staged acceptance | Independent pairing and same-receipt canonical synthetic positive/negative target bundle passed within target bounds. |
+| [ ] | P5.1 Settlement and data | Consecutive canonical batches, bounded publication, authenticated clean reconstruction and eligibility/retention; local DA preparation is not public acceptance. |
+| [ ] | P5.2 Publisher lifecycle | Durable intent before signing, single submission, ambiguity reconciliation, confirmation/reorg handling and bounded session abandonment/progress. |
+| [ ] | P5.3 Public-testnet integration | Two consecutive real settled batches, stale-parent/replay rejection, independent reconstruction and bounded recovery evidence. |
+| [ ] | P6.1 Custody/deposits | Authenticated confirmed domain-bound one-asset inbox, exact backing/reorg handling, credit once and matching runtime/guest messages. |
+| [ ] | P6.2 Withdrawals/recovery | Eligible-root atomic nullifiers and permissionless continuation/exits for account and supported contract-held rights with forced-input enforcement. |
+| [ ] | P6.3 Round trip | Approved public-testnet deposit/execution/proof/data/withdrawal, independent recovery and invalid/replayed/orphan handling. |
+| [ ] | P7.1 Release profile | Reproducible fresh mainnet identity/configuration, explicit economics/confirmation parameters and matching qualified semantics. |
+| [ ] | P7.2 Security/recovery | Independent exact-artifact audit/remediation, restore/failure qualification and no unresolved material release blocker. |
+| [ ] | P7.3 Launch package | Separate authorities, upgrades/exits, RPC/backlog/retention/alerts/runbooks, cost/backing separation and operational bounds. |
+| [ ] | P8.1 Authorized deployment | Verified mainnet release/network/authorities/funding scope and fresh approved state. |
+| [ ] | P8.2 Actual mainnet flow | Canonical real proofs, independently reconstructed data and bounded real-asset flow with exact backing. |
+| [ ] | P8.3 Operational handover | Observed declared operation, reconciliation/alerts/recovery readiness and usable handover. |
 
-Public-testnet acceptance cannot be replaced by mainnet read-only simulation. Independent audit and real-value launch require their actual evidence and approvals; this document does not authorize purchases, signing, funding or deployment.
-
-Final completion requires all six: **running approved mainnet runtime/contracts and usable RPC; actual canonical settlement; independently available/reconstructible data; backing plus withdrawals and permissionless recovery; qualified recovery and observed operation; approved audited release with no material blocker.** Mark complete only when each has actual evidence, then stop without expanding scope.
-
-## Open audit findings (5 October 2026)
-
-Internal source review plus scoped native checks; this is not the independent release audit required by P7.2. PRs #2-#10 contain the reviewed fixes and their checks. The remaining findings below require protocol work, an operator decision, target tooling or qualified execution evidence. None closes a checklist item.
-
-| ID | Severity | Finding and evidence | Direction | Items |
-| --- | --- | --- | --- | --- |
-| A1 | Critical | The staged verifier is one fixed child (`CHILD_PATH`) whose `begin` is permissionless, accepts any admissible seal/image/journal and has no reset. Whoever calls `begin` first, including a front-runner, fixes its statement; a seal that fails the final pairing leaves it stuck before phase 3. `accepted(expected)` then fails permanently. | Bind each session to its expected statement before `begin` (for example a child path derived from the statement and checked by `begin`), so sessions cannot be hijacked and an abandoned one cannot block later batches. | P4.3, P5.1, P5.2 |
-| A2 | Critical | Enforced in the producer: the exact encoded checkpoint size is tracked per commit (`storage/capacity.rs`) and a block whose checkpoint plus remaining historical hash-window growth would exceed `--max-checkpoint-bytes` (at most `MAX_CONTINUATION_CHECKPOINT_BYTES`, 8 MiB) is refused before writing; startup enforces the same reserve. Reported bytes remain the actual encoded size. An intent that cannot fit alone is rejected off-chain. Once state fills its budget, further growth stops while state-preserving intents can still advance the hash window; oversized batches retry the oldest intent alone. | Qualify the operating bound and headroom with guest preflight (A5), recovery and exit budgets; a sparse authenticated state is still needed for state beyond 8 MiB. | P4.1, P7.1 |
-| A3 | High | Addressed for the current profile: the producer no longer commits rejected intents. It resolves them outside the chain (`storage/discard.rs`, namespace `0x24`), which recovery and replay verify, so blocks stay representable by the witness and exports are not blocked. Discards are local outcomes and are not proven. | P6 forced inputs must not be discardable this way: a sequencer could censor an L1-forced message by declaring it rejected. Forced inputs need proven execution or a guest-validated rejection. | P4.1, P6.1, P6.2 |
-| A4 | High | `checkpoint_batch_data` (the DA commitment preimage) includes the complete checkpoint, up to 8 MiB, for every batch; public transport, cost and retrieval at that bound are unqualified. Checkpoint export also requires zero pending intents. | Qualify one bounded DA path, including suffix/delta reconstruction from accepted data and export from a committed boundary while admission continues. | P5.1 |
-| A5 | High | Worst-case guest cost is unmeasured. The guest re-encodes and hashes the full checkpoint several times and recomputes Keccak for all code against a 268,435,456-cycle ceiling. Native agreement passed small fixtures; current guest execution remains pending. | Use execution-only preflight (#7) on representative boundary inputs before qualifying the producer bound; lower the bound or fix the cost if it fails. | P4.2 |
-| A6 | High | Block timestamps are the sequencer's clock, checked only as non-decreasing; the statement does not relate them to L1 time, and a far-future value is irreversible. | Bound `context.timestamp` against L1 time at settlement (or in the statement) with a declared drift. | P4.1, P5.1 |
-| A7 | Medium | Fees are credited to the zero address (beneficiary zero), so fee revenue cannot pay proof/DA costs. | Choose a fee recipient and accounting in runtime and guest together; repin. | P7.3 |
-| A8 | Medium | Transaction objects omit `v/r/s/yParity` by policy, so typed clients cannot read transactions or full blocks (Alloy/Foundry `get_transaction_by_hash`, ethers `getTransaction`). The DA payload publishes the signed envelopes anyway. | Operator decision on exposing signatures for a public RPC. | P8.2 |
-| A9 | Medium | Every node start validates all retained commits and reconstructs expected records in memory (`storage/recovery.rs`); this is not EVM re-execution. Offline EVM replay and transition export are limited to 10,000 blocks. | Qualify bounded startup/recovery from authenticated checkpoints; retain full replay as an operator command. | P7.2 |
-| A10 | Medium | Runtime and SDK are development-bound: loopback-only access, development profile/health handshake, and one pending intent per sender with 256 total. The RPC server has no explicit request deadline or rate limit; the SDK already bounds connect/request/wait time. | Define the release profile and public RPC front (TLS, server deadlines, rate limits) and the mempool policy explicitly. | P7.1, P7.3 |
-| A11 | Low | Fail-stop classification depends on error message prefixes (`is_infrastructure_error`, `Storage read failed`). | Typed infrastructure errors. | P7.2 |
-| A12 | Release | No license is declared for first-party code; existing third-party license obligations still apply. | Operator choice before licensing the code for external reuse. | P7.3 |
-
-## Operating rules
-
-- Make implementation changes on a topic branch and open a PR; do not push work directly to `main`. Include scope, exact checks/results, unresolved risks and affected phase items. The implementation AI owns implementation; the designated reviewing assistant tests/reviews and merges to `main` only after relevant checks pass and material findings are resolved, which closes the PR. Failed PRs remain open with actionable findings. Implementation agents do not self-approve. A source-handoff merge does not accept unfinished P4-P8 features or authorize live deployment.
-- Preserve the existing sequential runtime, worker, committed views, exact accounting, validation and Fjall `SyncAll`. Extend existing Rust code; no replacement runtime, speculative dependency migration, cluster, optional features, or speed/load/soak benchmarks.
-- Keep authored source at most 400 physical lines with cohesive modules. Business logic belongs in services/usecases; raw database access belongs in stores/repositories. Check valid version-bound memory first, then storage, and refresh memory. No Prisma or first-party TypeScript/Go.
-- Use bounded independent sub-agents with explicit file ownership and one build coordinator. Build affected packages; reuse existing harnesses and retest failures/affected risks only. Record concise evidence, not repeated suites or reports per file.
-- Original-host ports `19745` and `19545` identify preserved L2 development instances; `12973` is the shared Alephium bot RPC. These are not remote/cloud endpoints. Never stop, restart, reconfigure or synchronize the shared node; never create a local Alephium testnet. Public Alephium testnet uses public nodes only.
-- Use fresh isolated development assets/data for fixtures and separate mainnet genesis/state/authorities. Never print keys, secrets, signatures or signed/proof payloads. Persist intent before signing, submit once, and reconcile ambiguity without automatic rebroadcast. Keep sequencer, publisher, bridge and treasury authorities separate.
+Additional release risks include the singleton verifier's lack of reusable/abandonment lifecycle, DA retention/availability, timestamp eligibility, forced-message censorship, fee funding, typed/public RPC compatibility and platform privacy/durability. No independent release audit, general maximum-capacity guarantee or mainnet acceptance follows from the P4 result. Preserve file-specific third-party licenses; no blanket first-party license is declared.

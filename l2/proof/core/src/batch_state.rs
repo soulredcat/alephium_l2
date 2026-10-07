@@ -1,5 +1,7 @@
 mod checkpoint;
+mod checkpoint_capacity;
 
+use crate::protocol::hash::{Digest, Sha256};
 use crate::{
     block::StoredChange,
     protocol::{Account, AccountChange, Genesis, Head},
@@ -8,7 +10,6 @@ use crate::{
 use alloy_primitives::{Address, B256, U256, keccak256};
 use revm::database_interface::{DBErrorMarker, DatabaseRef};
 use revm::state::{AccountInfo, Bytecode};
-use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// Complete execution state from genesis or a parent-root-bound checkpoint.
@@ -121,6 +122,7 @@ impl FullState {
         digest.update(b"alephium-l2-development/logical-state/v1");
         digest.update(u64::from(self.account_count()).to_be_bytes());
         let mut code_hashes = BTreeSet::new();
+        let empty_code = keccak256([]);
         for (address, (account, deleted)) in &self.accounts {
             if *deleted {
                 continue;
@@ -140,7 +142,7 @@ impl FullState {
                     digest.update(value.to_be_bytes::<32>());
                 }
             }
-            if account.code_hash != B256::ZERO && account.code_hash != keccak256([]) {
+            if account.code_hash != B256::ZERO && account.code_hash != empty_code {
                 code_hashes.insert(account.code_hash);
             }
         }

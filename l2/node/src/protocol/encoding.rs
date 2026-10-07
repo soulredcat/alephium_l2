@@ -42,7 +42,12 @@ impl Encoder {
         }
     }
     pub fn finish(self) -> Result<Vec<u8>, String> {
-        if self.0.len() > MAX_RECORD {
+        self.finish_with_limit(MAX_RECORD)
+    }
+    /// Whole runtime records may use a genesis-bound larger ceiling. Individual
+    /// length-prefixed fields retain the legacy bound in `bytes`.
+    pub fn finish_with_limit(self, limit: usize) -> Result<Vec<u8>, String> {
+        if limit == 0 || u32::try_from(limit).is_err() || self.0.len() > limit {
             Err("record exceeds storage limit".into())
         } else {
             Ok(self.0)
@@ -57,7 +62,10 @@ pub(crate) struct Decoder<'a> {
 
 impl<'a> Decoder<'a> {
     pub fn new(data: &'a [u8]) -> Result<Self, String> {
-        if data.len() > MAX_RECORD {
+        Self::new_with_limit(data, MAX_RECORD)
+    }
+    pub fn new_with_limit(data: &'a [u8], limit: usize) -> Result<Self, String> {
+        if limit == 0 || u32::try_from(limit).is_err() || data.len() > limit {
             return Err("record exceeds storage limit".into());
         }
         Ok(Self { data, offset: 0 })
@@ -104,6 +112,9 @@ impl<'a> Decoder<'a> {
     }
     pub fn bytes(&mut self) -> Result<Vec<u8>, String> {
         let length = self.u32()? as usize;
+        if length > MAX_RECORD {
+            return Err("record field exceeds storage limit".into());
+        }
         Ok(self.take(length)?.to_vec())
     }
     pub fn count(&mut self, minimum_size: usize) -> Result<usize, String> {

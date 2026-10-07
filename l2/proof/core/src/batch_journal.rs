@@ -1,11 +1,11 @@
 //! Canonical full-history statement and reconstruction data commitments.
+use crate::protocol::hash::{Digest, Sha256};
 use crate::{
     BatchTransitionBundle, EXECUTION_ENGINE, RPC_PROFILE, SettlementDomain, encoding::Encoder,
-    execution::private_envelope, protocol::*, records,
+    protocol::*, records,
 };
 use alloy_primitives::{B256, U256};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 
 pub const BATCH_SCOPE: &str = "cancun-full-history-batch/v2";
 
@@ -52,6 +52,7 @@ impl BatchTransitionJournal {
         out.bytes(match self.schema {
             2 => b"alephium-l2-transition-proof/journal/v2",
             3 => b"alephium-l2-transition-proof/journal/v3",
+            4 => b"alephium-l2-transition-proof/journal/v4",
             _ => return Err("unsupported batch journal version".into()),
         })?;
         out.u32(self.schema);
@@ -94,7 +95,8 @@ pub(crate) fn encode_domain(out: &mut Encoder, domain: &SettlementDomain) {
     out.hash(domain.settlement_contract_id);
 }
 
-pub(crate) fn profile_commitment() -> Result<B256, String> {
+pub(crate) fn profile_commitment(capacity: Capacity) -> Result<B256, String> {
+    capacity.validate()?;
     let mut out = Encoder::default();
     out.bytes(b"alephium-l2/execution-profile/v2")?;
     for text in [
@@ -116,6 +118,14 @@ pub(crate) fn profile_commitment() -> Result<B256, String> {
     // repin a new program/profile before accepting nonempty authenticated queues.
     out.bytes(b"inbox/outbox-empty-only/v1;zero-basefee;zero-beneficiary")?;
     out.bytes(b"Cancun-precompiles-01..0a;guest-k256-arkworks;producer-secp256k1-arkworks")?;
+    // Preserve the accepted legacy profile byte for byte. A custom fresh-chain
+    // capacity is an explicit extension, never an operator-only throttle.
+    if capacity != Capacity::default() {
+        out.bytes(b"alephium-l2/execution-capacity/v1")?;
+        out.u64(capacity.block_gas);
+        out.u64(capacity.block_bytes as u64);
+        out.u64(capacity.max_pending as u64);
+    }
     Ok(hash(&out.finish()?))
 }
 
@@ -155,24 +165,65 @@ pub fn batch_data(bundle: &BatchTransitionBundle) -> Result<Vec<u8>, String> {
     encode_domain(&mut out, &bundle.domain);
     out.u64(bundle.chain_id);
     out.hash(bundle.genesis_id);
-    out.hash(profile_commitment()?);
+    out.hash(profile_commitment(bundle.genesis.capacity)?);
     out.bytes(&records::genesis_bytes(&bundle.genesis)?)?;
     out.u64(bundle.batch_start);
     out.u64(bundle.blocks.len() as u64);
     for block in &bundle.blocks {
+        crate::transition_wire::checkpoint_transition_block_bytes_with_capacity(
+            block,
+            bundle.genesis.capacity,
+        )?;
         out.u64(block.context.number);
         out.u64(block.context.timestamp);
         out.u64(block.context.gas_limit);
-        if block.transactions.is_empty() || block.transactions.len() > MAX_PENDING {
+        if block.context.gas_limit != bundle.genesis.capacity.block_gas
+            || block.transactions.is_empty()
+            || block.transactions.len() > bundle.genesis.capacity.max_pending
+        {
             return Err("batch reconstruction transaction count exceeds bound".into());
         }
         out.u32(block.transactions.len() as u32);
         for input in &block.transactions {
-            out.bytes(&private_envelope(&input.raw_envelope_hex)?)?;
+            out.bytes(input.raw_envelope_hex.as_bytes())?;
             if out.0.len() > crate::encoding::MAX_RECORD {
                 return Err("batch reconstruction data exceeds byte bound".into());
             }
         }
     }
     out.finish()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn legacy_profile_pin_is_preserved_and_each_capacity_field_is_bound() {
+        let legacy = Capacity::default();
+        let expected: B256 = "0xdcca8903bf24135e5111d32658b3879a651837e89211b4abd23059b94abb0210"
+            .parse()
+            .unwrap();
+        assert_eq!(profile_commitment(legacy).unwrap(), expected);
+        let profiles = [
+            Capacity {
+                block_gas: legacy.block_gas + 1,
+                ..legacy
+            },
+            Capacity {
+                block_bytes: legacy.block_bytes + 1,
+                ..legacy
+            },
+            Capacity {
+                max_pending: legacy.max_pending + 1,
+                ..legacy
+            },
+        ];
+        let mut commitments = std::collections::BTreeSet::new();
+        for profile in profiles {
+            let commitment = profile_commitment(profile).unwrap();
+            assert_ne!(commitment, expected);
+            assert!(commitments.insert(commitment));
+        }
+    }
 }

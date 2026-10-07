@@ -28,6 +28,7 @@ pub fn genesis_for_chain(chain_id: u64) -> Result<Genesis, String> {
     validate_chain_id(chain_id)?;
     Ok(Genesis {
         chain_id,
+        capacity: Default::default(),
         accounts: vec![GenesisAccount {
             address: address(),
             balance: U256::from(INITIAL_BALANCE),

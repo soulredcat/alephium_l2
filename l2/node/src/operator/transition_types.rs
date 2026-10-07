@@ -1,4 +1,8 @@
 //! Private replay-derived inputs and a safe report for transition proof preparation.
+#[path = "transition_envelope.rs"]
+mod envelope;
+pub use envelope::RawEnvelope;
+
 use crate::protocol::checkpoint::ExecutionCheckpoint;
 use crate::protocol::{BlockContext, Genesis, Head, Receipt};
 use alloy_primitives::B256;
@@ -98,7 +102,7 @@ impl SettlementDomain {
 #[serde(deny_unknown_fields)]
 pub struct TransitionInput {
     pub transaction_hash: B256,
-    pub raw_envelope_hex: String,
+    pub raw_envelope_hex: RawEnvelope,
     pub expected_receipt: Receipt,
 }
 

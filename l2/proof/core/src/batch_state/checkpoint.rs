@@ -1,5 +1,5 @@
-use super::FullState;
-use crate::protocol::{Account, Head, checkpoint::*};
+use super::{FullState, checkpoint_capacity::ensure_checkpoint_bytes};
+use crate::protocol::{Account, Capacity, Head, checkpoint::*};
 use alloy_primitives::{B256, keccak256};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -7,7 +7,8 @@ impl FullState {
     /// Validation alone is not authentication. Orchestration must commit the
     /// imported checkpoint's canonical root and settlement must match its parent.
     pub(crate) fn from_checkpoint(checkpoint: &ExecutionCheckpoint) -> Result<Self, String> {
-        checkpoint.validate()?;
+        let bytes = checkpoint.encoded_len()?;
+        ensure_checkpoint_bytes(bytes, checkpoint.head.height, checkpoint.capacity)?;
         let mut accounts = BTreeMap::new();
         let mut slots = BTreeMap::new();
         for account in &checkpoint.accounts {
@@ -58,6 +59,7 @@ impl FullState {
         chain_id: u64,
         genesis_id: B256,
         head: &Head,
+        capacity: Capacity,
     ) -> Result<ExecutionCheckpoint, String> {
         if chain_id != self.chain_id
             || genesis_id != self.genesis_id
@@ -66,12 +68,12 @@ impl FullState {
             return Err("checkpoint identity differs from executed state".into());
         }
         let mut referenced = BTreeSet::new();
+        let empty_code = keccak256([]);
         let accounts = self
             .accounts
             .iter()
             .map(|(address, (account, deleted))| {
-                if !deleted && account.code_hash != B256::ZERO && account.code_hash != keccak256([])
-                {
+                if !deleted && account.code_hash != B256::ZERO && account.code_hash != empty_code {
                     referenced.insert(account.code_hash);
                 }
                 CheckpointAccount {
@@ -104,8 +106,9 @@ impl FullState {
             })
             .collect::<Result<_, _>>()?;
         let checkpoint = ExecutionCheckpoint {
-            schema: CHECKPOINT_SCHEMA,
+            schema: capacity.checkpoint_schema(),
             chain_id,
+            capacity,
             genesis_id,
             head: head.clone(),
             accounts,

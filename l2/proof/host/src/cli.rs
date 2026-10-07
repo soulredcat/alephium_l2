@@ -1,9 +1,9 @@
 //! Exact CLI surface and local-only prover routing policy.
 
-use crate::{HostResult, inputs};
+use crate::{HostResult, backend, inputs, resources};
 use std::{env, ffi::OsString, path::PathBuf, process::Command};
 
-const USAGE: &str = "Usage: alephium-l2-transition-prover --input <private-transition.json> --guest <ProgramBinary> --expected-image-id <64-hex> --prover-sha256 <64-hex> (--output <new-directory> | --execute-only)";
+const USAGE: &str = "Usage: alephium-l2-transition-prover --input <private-transition> --guest <ProgramBinary> --expected-image-id <64-hex> --prover-sha256 <64-hex> [--workers <positive-count-within-CPU-minus-one-budget>] [--max-cycles <positive-u64-user-cycle-budget>] [--prover-backend cpu|cuda] [--prover-build-manifest <pinned-json> --prover-build-manifest-sha256 <64-hex>] (--output <new-directory> | --execute-only)";
 pub const SDK_VERSION: &str = "3.0.3";
 pub const SDK_REVISION: &str = "14b5d588dd01cf4f7ba804d8bb0a61264e6ae2c6";
 
@@ -14,17 +14,31 @@ pub struct Config {
     pub output: Option<PathBuf>,
     pub expected_image_id: [u8; 32],
     pub prover_sha256: [u8; 32],
+    pub workers: Option<usize>,
+    /// Finite host work budget. Parsing a value does not authorize its run.
+    pub max_cycles: u64,
+    pub prover_backend: backend::Backend,
+    pub prover_build_manifest: Option<PathBuf>,
+    pub prover_build_manifest_sha256: Option<[u8; 32]>,
 }
 
 impl Config {
     pub fn parse() -> HostResult<Self> {
+        Self::parse_args(env::args_os().skip(1))
+    }
+
+    fn parse_args(mut args: impl Iterator<Item = OsString>) -> HostResult<Self> {
         let mut input = None;
         let mut guest = None;
         let mut output = None;
         let mut image_id = None;
         let mut prover_sha256 = None;
         let mut execute_only = false;
-        let mut args = env::args_os().skip(1);
+        let mut workers = None;
+        let mut max_cycles = None;
+        let mut prover_backend = None;
+        let mut build_manifest = None;
+        let mut build_manifest_sha256 = None;
         while let Some(flag) = args.next() {
             if flag == "--execute-only" {
                 if std::mem::replace(&mut execute_only, true) {
@@ -36,6 +50,30 @@ impl Config {
             if value.is_empty() || value.to_string_lossy().starts_with("--") {
                 return Err(USAGE);
             }
+            if flag == "--workers" {
+                if workers.replace(resources::parse_workers(&value)?).is_some() {
+                    return Err("Duplicate CLI option.");
+                }
+                continue;
+            }
+            if flag == "--max-cycles" {
+                if max_cycles
+                    .replace(resources::parse_max_cycles(&value)?)
+                    .is_some()
+                {
+                    return Err("Duplicate CLI option.");
+                }
+                continue;
+            }
+            if flag == "--prover-backend" {
+                if prover_backend
+                    .replace(backend::Backend::parse(&value)?)
+                    .is_some()
+                {
+                    return Err("Duplicate CLI option.");
+                }
+                continue;
+            }
             let slot = if flag == "--input" {
                 &mut input
             } else if flag == "--guest" {
@@ -46,6 +84,10 @@ impl Config {
                 &mut image_id
             } else if flag == "--prover-sha256" {
                 &mut prover_sha256
+            } else if flag == "--prover-build-manifest" {
+                &mut build_manifest
+            } else if flag == "--prover-build-manifest-sha256" {
+                &mut build_manifest_sha256
             } else {
                 return Err(USAGE);
             };
@@ -63,6 +105,11 @@ impl Config {
             output,
             expected_image_id: parse_digest(image_id.ok_or(USAGE)?)?,
             prover_sha256: parse_digest(prover_sha256.ok_or(USAGE)?)?,
+            workers,
+            max_cycles: max_cycles.unwrap_or(resources::DEFAULT_MAX_CYCLES),
+            prover_backend: prover_backend.unwrap_or_default(),
+            prover_build_manifest: build_manifest,
+            prover_build_manifest_sha256: build_manifest_sha256.map(parse_digest).transpose()?,
         };
         // This path is the only user-provided text printed on successful exit.
         if config
@@ -79,11 +126,13 @@ impl Config {
 pub struct LocalProver {
     pub server_path: PathBuf,
     pub server_sha256: [u8; 32],
+    pub backend: backend::BackendEvidence,
 }
 
 impl LocalProver {
     /// Docker is only inspected when a Groth16 proof will actually be produced.
-    pub fn validate(expected_sha256: [u8; 32], groth16: bool) -> HostResult<Self> {
+    pub fn validate(config: &Config) -> HostResult<Self> {
+        let expected_sha256 = config.prover_sha256;
         if risc0_zkvm::VERSION != SDK_VERSION {
             return Err("Host SDK does not match the reviewed 3.0.3 pin.");
         }
@@ -104,8 +153,13 @@ impl LocalProver {
         if env::var_os("RISC0_EXECUTOR").is_some_and(|value| value != "ipc") {
             return Err("Only local IPC execution is permitted.");
         }
-        if env::var_os("RISC0_PPROF_OUT").is_some() || env::var_os("RISC0_KECCAK_PO2").is_some() {
-            return Err("Inherited profiler or execution overrides are forbidden.");
+        if env::var_os("RISC0_PPROF_OUT").is_some()
+            || env::var_os("RISC0_KECCAK_PO2").is_some()
+            || env::var_os("RISC0_DUMP_PATH").is_some()
+        {
+            // A pinned SDK executor fault can write private segment state at
+            // RISC0_DUMP_PATH even with tracing disabled and guest sinks.
+            return Err("Inherited profiler, executor dump or execution overrides are forbidden.");
         }
         // The Groth16 subprocess writes intermediate seals and proofs here when
         // set. Its default private temporary directory is the only allowed path.
@@ -137,6 +191,12 @@ impl LocalProver {
         if server_sha256 != expected_sha256 {
             return Err("Explicit r0vm executable differs from its approved SHA-256 pin.");
         }
+        let backend = backend::validate(
+            config.prover_backend,
+            config.prover_build_manifest.as_deref(),
+            config.prover_build_manifest_sha256,
+            server_sha256,
+        )?;
         let version = Command::new(&server_path)
             .arg("--version")
             .output()
@@ -150,12 +210,13 @@ impl LocalProver {
         {
             return Err("Explicit r0vm does not report the required 3.0.3 version.");
         }
-        if groth16 {
+        if config.output.is_some() && config.prover_backend == backend::Backend::Cpu {
             validate_local_docker()?;
         }
         Ok(Self {
             server_path,
             server_sha256,
+            backend,
         })
     }
 }
@@ -221,4 +282,62 @@ fn validate_local_docker() -> HostResult<()> {
         return Err("Groth16 requires a local Docker socket; remote endpoints are forbidden.");
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Config;
+    use crate::resources::DEFAULT_MAX_CYCLES;
+    use std::ffi::OsString;
+
+    fn base_args() -> Vec<OsString> {
+        [
+            "--input",
+            "unused-input",
+            "--guest",
+            "unused-program",
+            "--expected-image-id",
+        ]
+        .into_iter()
+        .map(OsString::from)
+        .chain([
+            OsString::from("11".repeat(32)),
+            OsString::from("--prover-sha256"),
+            OsString::from("22".repeat(32)),
+            OsString::from("--execute-only"),
+        ])
+        .collect()
+    }
+
+    #[test]
+    fn cycle_option_is_explicit_unique_and_identical_for_both_modes() {
+        assert_eq!(
+            Config::parse_args(base_args().into_iter())
+                .unwrap()
+                .max_cycles,
+            DEFAULT_MAX_CYCLES
+        );
+        let mut args = base_args();
+        args.extend(["--max-cycles", "536870912"].map(OsString::from));
+        assert_eq!(
+            Config::parse_args(args.clone().into_iter())
+                .unwrap()
+                .max_cycles,
+            536_870_912
+        );
+        args.extend(["--max-cycles", "1"].map(OsString::from));
+        assert!(Config::parse_args(args.into_iter()).is_err());
+        let mut proof = base_args();
+        proof.pop();
+        proof.extend(
+            ["--output", "unused-new-output", "--max-cycles", "536870912"].map(OsString::from),
+        );
+        assert_eq!(
+            Config::parse_args(proof.into_iter()).unwrap().max_cycles,
+            536_870_912
+        );
+        let mut invalid = base_args();
+        invalid.extend(["--max-cycles", "0"].map(OsString::from));
+        assert!(Config::parse_args(invalid.into_iter()).is_err());
+    }
 }

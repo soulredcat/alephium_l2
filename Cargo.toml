@@ -1,7 +1,7 @@
 [workspace]
 resolver = "3"
 members = ["l2/node", "l2/sdk", "l2/verifier-tool"]
-exclude = ["l2/proof"]
+exclude = ["l2/proof", "l2/gpu"]
 
 [workspace.package]
 edition = "2024"

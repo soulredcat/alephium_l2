@@ -15,6 +15,8 @@ mod node_source {
 pub use node_source::protocol;
 #[path = "../../../node/src/operator/transition_wire.rs"]
 mod transition_wire;
+#[path = "../../../node/src/operator/transition_wire_large.rs"]
+mod transition_wire_large;
 
 // Reuse the production canonical formats and lifecycle normalization without
 // linking its database, networking, asynchronous worker or node crate.
@@ -38,31 +40,48 @@ mod batch_replay;
 mod batch_state;
 mod canonical;
 mod checkpoint_batch;
+mod commitment_batch;
+mod commitment_stream;
 mod execution;
 mod journal;
+mod large_checkpoint;
 mod proof_input;
 mod state;
+
+// Native DA preparation adds no guest commitment/encoding changes or authority.
+#[cfg(not(target_os = "zkvm"))]
+pub mod da;
 
 pub use batch::prove_batch_transition;
 pub use batch_journal::{BatchTransitionJournal, batch_data};
 pub use checkpoint_batch::{
     CheckpointTransitionOutput, checkpoint_batch_data, checkpoint_profile,
-    prove_checkpoint_transition,
+    checkpoint_profile_with_capacity, prove_checkpoint_transition,
 };
 pub use input::{
-    BatchTransitionBundle, BatchTransitionReport, MAX_TRANSITION_BLOCKS, SettlementDomain,
-    TransitionBlock, TransitionInput,
+    BatchTransitionBundle, BatchTransitionReport, MAX_TRANSITION_BLOCKS, RawEnvelope,
+    SettlementDomain, TransitionBlock, TransitionInput,
 };
 pub use input::{CheckpointTransitionBundle, CheckpointTransitionReport};
 pub use input::{TransitionBundle, TransitionContext, TransitionReport};
 pub use journal::{TransferAccounting, TransitionJournal};
-pub use proof_input::{ProofInput, ProvenTransition, decode_input, prove_input};
+pub use large_checkpoint::{
+    LARGE_CHECKPOINT_SCOPE, checkpoint_batch_commitment, checkpoint_profile_v4_with_capacity,
+};
+pub use proof_input::{
+    ProofInput, ProvenTransition, decode_input, decode_input_reader, prove_input,
+};
 pub use transition_wire::{
     MAX_CHECKPOINT_WIRE_BYTES, MAX_CONTINUATION_CHECKPOINT_BYTES, decode_checkpoint_transition,
     encode_checkpoint_transition, is_checkpoint_wire,
 };
+pub use transition_wire_large::{
+    LARGE_CHECKPOINT_HEADER_BYTES, LARGE_CHECKPOINT_WIRE_MAGIC, decode_large_checkpoint_transition,
+    decode_large_checkpoint_transition_reader, encode_large_checkpoint_transition,
+    is_large_checkpoint_wire, large_checkpoint_transition_header,
+};
 
-use protocol::{BLOCK_GAS, BlockCommit};
+use protocol::{BLOCK_GAS, BlockCommit, Capacity};
 
 pub const RPC_PROFILE: &str = "development/c5-v1";
 pub const EXECUTION_ENGINE: &str = "REVM 43.0.3/Cancun (same library as producer)";
@@ -71,6 +90,11 @@ pub const PROOF_SCOPE: &str = "genesis-first-native-eoa-transfer/v1";
 /// Reconstruct full genesis, recover the actual signer and execute REVM before
 /// comparing any supplied output oracle. Bundle verification flags are ignored.
 pub fn prove_transition(bundle: &TransitionBundle) -> Result<TransitionJournal, String> {
+    // Schema one has no capacity-bearing journal. Custom chains must use the
+    // existing full-history or checkpoint batch statement, which binds it.
+    if bundle.genesis.capacity != Capacity::default() {
+        return Err("legacy single-transfer proof requires the default capacity".into());
+    }
     if bundle.schema != 1
         || bundle.rpc_profile != RPC_PROFILE
         || bundle.execution_engine != EXECUTION_ENGINE

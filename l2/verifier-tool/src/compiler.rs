@@ -25,7 +25,7 @@ pub struct Compiled {
 pub fn compile(
     jar: &Path,
     evidence: &Path,
-    deadline: Instant,
+    deadline: Option<Instant>,
     suite: Suite,
 ) -> Result<Compiled, String> {
     let jar = jar
@@ -66,7 +66,7 @@ pub fn compile(
         use std::os::windows::process::CommandExt;
         command.creation_flags(0x0800_0000);
     }
-    if Instant::now() >= deadline {
+    if deadline.is_some_and(|limit| Instant::now() >= limit) {
         return Err("Field harness deadline expired before compilation".into());
     }
     let mut child = command
@@ -75,7 +75,9 @@ pub fn compile(
     let status = loop {
         match child.try_wait() {
             Ok(Some(status)) => break status,
-            Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(20)),
+            Ok(None) if deadline.is_none_or(|limit| Instant::now() < limit) => {
+                thread::sleep(Duration::from_millis(20));
+            }
             Ok(None) => {
                 let _ = child.kill();
                 let _ = child.wait();
@@ -141,9 +143,9 @@ pub fn compile(
             "project": "artifacts/.project.json", "projectSha256": sha256(&project_bytes),
             "projectSourceHashesMatched": true, "compilerOptionsUsed": project["compilerOptionsUsed"],
             "executableSha256": sha256(&executable), "executableBytes": executable.len(),
-            "immutableFieldCount": if matches!(suite, Suite::StagedFactory | Suite::StagedFactoryFlow) {3} else {1},
+            "immutableFieldCount": if matches!(suite, Suite::StagedFactory | Suite::StagedFactoryFlow) {4} else if matches!(suite, Suite::StagedReceipt) {2} else {1},
             "mutableFieldCount": if matches!(suite, Suite::StagedReceipt) {81} else {0},
-            "estimatedVmFieldBytes": if matches!(suite, Suite::StagedReceipt) {2624} else if matches!(suite, Suite::StagedFactory | Suite::StagedFactoryFlow) {96} else {32},
+            "estimatedVmFieldBytes": if matches!(suite, Suite::StagedReceipt) {2656} else if matches!(suite, Suite::StagedFactory | Suite::StagedFactoryFlow) {128} else {32},
             "fieldsSignature": artifact["fieldsSig"], "publicMethodIndices": public_methods,
             "serializedFieldBytesIndependentlyMeasured": false,
             "expectedFpModulus": FP_MODULUS, "loadedContracts": 1, "methodIndex": method_index,

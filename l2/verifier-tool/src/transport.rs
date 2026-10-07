@@ -22,12 +22,12 @@ pub enum ProbeError {
 
 pub struct ReadOnlyNode {
     client: Client,
-    deadline: Instant,
+    deadline: Option<Instant>,
     pub identity: Value,
 }
 
 impl ReadOnlyNode {
-    pub fn connect(deadline: Instant) -> Result<Self, String> {
+    pub fn connect(deadline: Option<Instant>) -> Result<Self, String> {
         let client = Client::builder()
             .no_proxy()
             .redirect(Policy::none())
@@ -71,7 +71,10 @@ impl ReadOnlyNode {
     }
 
     fn remaining(&self) -> Result<Duration, ProbeError> {
-        self.deadline
+        let Some(deadline) = self.deadline else {
+            return Ok(REQUEST_TIMEOUT);
+        };
+        deadline
             .checked_duration_since(Instant::now())
             .filter(|remaining| !remaining.is_zero())
             .map(|remaining| remaining.min(REQUEST_TIMEOUT))

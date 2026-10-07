@@ -8,12 +8,14 @@ pub const MAX_REQUESTS: usize = 40;
 pub const MUTABLE_WORDS: usize = 80;
 pub const INITIAL_CURSOR: u64 = 65;
 pub const ID_DOMAIN: &[u8] = b"ALPH/L2/stagedreceipt/v1";
+pub const PAYLOAD_DOMAIN: &[u8] = b"ALPH/L2/stagedpayload/v1";
 
 pub struct Fixture {
     pub begin_args: Vec<Value>,
     pub wrong_image_args: Vec<Value>,
     pub wrong_journal_args: Vec<Value>,
     pub statement_id: String,
+    pub payload_id: String,
     pub wrong_image_id: String,
     pub wrong_journal_id: String,
     pub contract_id: [u8; 32],
@@ -63,6 +65,7 @@ impl Fixture {
         let wrong_journal = changed(2)?;
         Ok(Self {
             statement_id: statement,
+            payload_id: payload_id(&encoded_inputs(encoded)?),
             wrong_image_id: statement_id(contract_id, &wrong_image)?,
             wrong_journal_id: statement_id(contract_id, &wrong_journal)?,
             begin_args: encoded.iter().map(|value| bytes(value)).collect(),
@@ -71,6 +74,29 @@ impl Fixture {
             contract_id: *contract_id,
             address: contract_address(contract_id),
         })
+    }
+
+    pub(crate) fn from_args(contract_id: &[u8; 32], args: &[Value]) -> Result<Self, String> {
+        let encoded = args
+            .iter()
+            .map(|arg| {
+                if arg["type"] != "ByteVec" {
+                    return Err("Expected exact ByteVec claim fields".to_owned());
+                }
+                arg["value"]
+                    .as_str()
+                    .map(str::to_owned)
+                    .ok_or("Missing claim bytes".into())
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        Self::from_encoded(contract_id, &encoded)
+    }
+
+    pub(crate) fn immutable_fields(&self) -> Vec<Value> {
+        vec![
+            crate::cases::word(crate::cases::FP_MODULUS),
+            bytes(&self.payload_id),
+        ]
     }
 
     pub fn zero_witness_args(&self) -> Result<Vec<Value>, String> {
@@ -87,6 +113,15 @@ impl Fixture {
 }
 
 fn statement_id(contract_id: &[u8; 32], args: &[String]) -> Result<String, String> {
+    let input = encoded_inputs(args)?;
+    let mut hash = Sha256::new();
+    hash.update(ID_DOMAIN);
+    hash.update(contract_id);
+    update_claim(&mut hash, &input);
+    Ok(hex::encode(hash.finalize()))
+}
+
+fn encoded_inputs(args: &[String]) -> Result<Vec<Vec<u8>>, String> {
     if args.len() != 4 {
         return Err("Staged statement requires exactly four byte vectors".into());
     }
@@ -101,18 +136,28 @@ fn statement_id(contract_id: &[u8; 32], args: &[String]) -> Result<String, Strin
     {
         return Err("Staged input differs from the fixed wire layout".into());
     }
-    let mut hash = Sha256::new();
-    hash.update(ID_DOMAIN);
-    hash.update(contract_id);
     if input[0][..4] != [0x73, 0xc4, 0x57, 0xba] {
         return Err("Staged statement selector differs from the certified key".into());
     }
+    if input[3][0] != 1 {
+        return Err("Staged auxiliary version differs from the certified layout".into());
+    }
+    Ok(input)
+}
+
+fn payload_id(input: &[Vec<u8>]) -> String {
+    let mut hash = Sha256::new();
+    hash.update(PAYLOAD_DOMAIN);
+    update_claim(&mut hash, input);
+    hex::encode(hash.finalize())
+}
+
+fn update_claim(hash: &mut Sha256, input: &[Vec<u8>]) {
     hash.update([0x73, 0xc4, 0x57, 0xba]);
     hash.update(&input[1]);
     hash.update(&input[2]);
     hash.update(Sha256::digest(&input[0]));
     hash.update(Sha256::digest(&input[3]));
-    Ok(hex::encode(hash.finalize()))
 }
 
 // v4.7.0 LockupScript.P2C serializes as 03 || ContractId, without a checksum.

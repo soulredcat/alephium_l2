@@ -1,0 +1,43 @@
+diff --git a/sppark/polynomial/div_by_x_minus_z.cuh b/sppark/polynomial/div_by_x_minus_z.cuh
+--- a/sppark/polynomial/div_by_x_minus_z.cuh
++++ b/sppark/polynomial/div_by_x_minus_z.cuh
+@@ -248,6 +248,10 @@ void d_div_by_x_minus_z(fr_t d_inout[], size_t len, fr_t z)
+                             temp *= (z_pow = z_pow_carry[laneid]);
+                             carry_over += temp;
+                         }
++
++                        // Complete every warp's reads before reusing xchg
++                        // for the per-block carries below.
++                        __syncthreads();
+                     }
+ 
+                     if (threadIdx.x < gridDim.x)
+@@ -351,6 +355,8 @@ void d_div_by_x_minus_z(fr_t d_inout[], size_t len, fr_t z)
+                         break;
+                     }   // else fall through
+                 case 3: // blockIdx.x != 0
++                    // The prior scan may still be reading the warp totals.
++                    __syncthreads();
+                     if (threadIdx.x < gridDim.x)
+                         xchg[threadIdx.x] = coeff[N-1];
+ 
+@@ -400,6 +406,9 @@ void d_div_by_x_minus_z(fr_t d_inout[], size_t len, fr_t z)
+             } while (pc >= 0);
+         }
+ 
++        // Complete reads of the previous xchg phase, including paths that
++        // skipped the inter-block scan, before publishing new warp totals.
++        __syncthreads();
+         if (N > 1) {
+             if (laneid == WARP_SZ-1)
+                 xchg[warpid] = coeff[N-1];
+@@ -429,6 +438,9 @@ void d_div_by_x_minus_z(fr_t d_inout[], size_t len, fr_t z)
+             if (idx + i < len - rotate)
+                 inout[idx + i + rotate] = coeff[i];
+         }
++
++        // All readers must finish before the next iteration reuses xchg.
++        __syncthreads();
+     }
+ 
+     if (rotate) {

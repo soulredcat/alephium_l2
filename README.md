@@ -1,112 +1,77 @@
 # Alephium EVM L2
 
-Rust EVM development runtime, SDK, transition-proof work, and Ralph verifier tooling for an independent Alephium EVM L2. The node executes supported transactions and contracts with durable state/receipts and bounded JSON-RPC. **Mainnet is not complete: actual L2 settlement, bridge/recovery, release audit, and authorized launch remain open.**
+Rust EVM development node, SDK, transition proof components and Ralph verifier tooling. **P4 is complete for the recorded fresh 10-transaction development proving fixture.** Public Alephium settlement, bridge and permissionless recovery, release qualification and mainnet operation remain incomplete.
 
-**AI continuation starts at [docs/HANDOFF.md](docs/HANDOFF.md).** It is the single handoff document: checked versus unchecked work, the fixed P4-P8 checklist, reproduction steps, and operational restrictions. [handoff/status.json](handoff/status.json) contains curated recorded outcomes and artifact pins. Implementation/proving was paused by the operator; this source handoff does not resume it or authorize live operations.
+[docs/HANDOFF.md](docs/HANDOFF.md) defines the accepted scope, reproduction prerequisites and remaining P5-P8 checklist. [handoff/status.json](handoff/status.json) contains curated results. This repository distributes source and public reference fixtures; current private databases, signed witnesses, receipts, proof binaries, local identities, tool installations and raw execution evidence are excluded. Source publication does not deploy or settle a chain.
 
-Development uses topic branches and pull requests. The implementation AI submits scoped changes; the designated reviewing assistant tests/reviews, then merges passing PRs to `main` so they close automatically. Failed PRs remain open with actionable findings. Do not push implementation work directly to `main`; merging a handoff does not establish mainnet acceptance.
+## Accepted P4 scope
 
-## Workspace
+| Area | Recorded development result |
+| --- | --- |
+| Workload | Exactly 10 transactions across five blocks: six genesis-funded wallet transfers plus root transfer, contract deployment, write and revert. No setup funding transactions. |
+| Node correctness | Actual CUDA recovery/address derivation with full CPU oracle; 10 durable ACKs/receipts, exact accounting, reopen and actual service restart. Seven initial / 16 final accounts; 295,496 executed gas; 2,326-byte final checkpoint. |
+| Current guest and proof | Real Groth16 receipt, development mode disabled, exact independent native/guest/receipt journal: 30,194,287 user cycles / 68 segments. |
+| Canonical target | Independent native BN254 pairing and 69 same-receipt synthetic VM cases: 47 positive executions / 22 expected rejections. Changed image/journal/proof, forged origin, payload hijack and stage-order failures rejected. |
+| Target bounds | Maximum positive VM gas 1,642,428 under a 5,000,000 bound; child executable 31,216 bytes under 32,768. |
+| Statement | All 30 canonical journal fields reconciled, including domains, ancestry, profile, old/new state, ordered transactions/context/receipts, empty inbox/outbox and DA commitment. |
+| Cleanup | Owned fixture services, prover and verifier/compiler processes were stopped and checked after the bundle. |
+
+**Ten is a proving-test input count, not a node/block/system limit.** The fixture used fresh genesis with 3,000,000,000 block gas, 32 MiB payload, 1,000 pending and an 8 MiB producer checkpoint ceiling. Numerical capacity settings do not establish throughput or proofability for arbitrary contracts at those maxima.
+
+A retained 1,000-transaction execution-only preflight halted successfully at **2,878,176,684 cycles / 6,397 segments**; it has no accepted proof. Qualification of 1,000-TX+ proving and the **1M-TX/block target** remains open. That target is not a qualified capacity result or a new node setting.
+
+The target result is read-only synthetic VM acceptance. It establishes neither live deployment, public-testnet acceptance, persistent settlement continuity, backing, independent release audit nor mainnet readiness.
+
+## Source map and dependencies
 
 | Path | Responsibility |
 | --- | --- |
-| `l2/node` | Sequential EVM execution, durable storage, RPC, development helpers, offline operator commands, and integration tests. |
-| `l2/sdk` | Blocking Rust client with pinned chain/genesis identity, transaction preparation, one-time submission, and receipt reconciliation. |
-| `l2/proof` | Independent workspace containing shared transition core, RISC0 guest, proof host, and official guest packaging helper. Current checkpoint guest acceptance is unfinished. |
-| `l2/verifier-tool` | Rust offline compiler integration and bounded synthetic Ralph verifier/factory checks. |
-| `l2/contracts/alephium/verifier` | Arithmetic, receipt verification, and canonical staged factory sources; not a deployed settlement or bridge. |
-| `l2/node/fixtures` | Pinned third-party EVM reference data and a historical verifier compatibility fixture, with sources and licenses. |
+| `l2/node` | Ordered REVM execution, durable Fjall storage, bounded development RPC, sequencing, recovery/export and integration fixtures. |
+| `l2/sdk` | Rust client with trusted chain/genesis pins, transaction preparation, single submission and reconciliation. |
+| `l2/gpu` | CUDA driver boundary, cacheable pinned host staging, explicit recovery/Keccak device artifact and vendor provenance. |
+| `l2/proof` | Separate core/guest/host workspace, official guest packaging, SDK/dependency patches, qualification sources and native DA tools. |
+| `l2/verifier-tool` | Compiler integration and canonical synthetic verifier/factory harness. |
+| `l2/contracts/alephium/verifier` | Ralph arithmetic, receipt verifier and staged factory sources. |
 
-The root workspace contains node, SDK, and verifier tool. `l2/proof` has its own workspace, lockfile, and target configuration; run its commands from that directory. The latest paused source is included, including work that still needs compilation or acceptance as identified in the handoff. Existing chain databases, private witnesses, incomplete proof output, tool binaries and historical planning archives are excluded. Exporting execution inputs does not itself generate or settle a proof.
+The root workspace contains node, SDK and verifier tool. The GPU crate is excluded from that workspace and used as the node's optional dependency. Run proof commands from `l2/proof`, which has its own lockfile and target configuration.
 
-The toolchain is pinned to Rust `1.97.1`. Core dependencies include REVM `43.0.3`, Fjall `3.1.12`, Alloy consensus/signing `2.5.0`, and Alloy primitives `1.6.0`; `Cargo.lock` pins the resolved dependency graph. First-party implementation is Rust. The enabled secp256k1 dependency includes native C code, so an appropriate native build toolchain is also required.
+Host Rust is pinned to **1.97.1**; guest baseline is **RISC Zero r0.1.94.1**. Locks retain REVM 43.0.3, Fjall 3.1.12, Alloy consensus/signing 2.5.0 and primitives 1.6.0. RISC Zero 3.0.3, the stable legacy-syscall k256/crypto-bigint forks and source revisions are declared in [proof Cargo.toml](l2/proof/Cargo.toml).
 
-## Build and run
+The host/runtime interfaces are Rust. The explicit CUDA device artifact uses C++17/PTX; NVIDIA NVCC/driver, native secp256k1 C, native Groth16 components and Scala/JVM Ralph compilation are separate dependencies. The complete stack is not pure Rust.
 
-Run these PowerShell commands from the repository root. Use a free loopback port and a new directory for each separate chain. The example selects chain ID `424245` and port `19745`; it does not connect to or assume an existing deployment.
+## Build and local development
+
+This ordinary example selects the **CPU/default development profile**, a fresh directory and an illustrative development identity:
 
 ```powershell
 cargo build --workspace --locked
 New-Item -ItemType Directory -Force .local/devnet | Out-Null
-
 cargo run -p alephium-l2-node --locked -- --make-genesis .local/devnet/genesis.json --chain-id 424245
-cargo run -p alephium-l2-node --locked -- --chain-id 424245 --genesis .local/devnet/genesis.json --data-dir .local/devnet/data --listen 127.0.0.1:19745
+cargo run -p alephium-l2-node --locked -- --chain-id 424245 --genesis .local/devnet/genesis.json --data-dir .local/devnet/data --listen 127.0.0.1:19745 --verification-backend cpu
 ```
 
-The node runs in the foreground. Press **Ctrl+C** to stop it gracefully. To restart, repeat only the final command with the same chain ID, genesis, and data directory. Genesis creation refuses to overwrite an existing file; opening a database with a different chain/genesis/profile is rejected. Never run two processes against one data directory.
+Use a free loopback port. The node runs in the foreground; Ctrl+C stops the owned process. Restart with the same genesis, identity and data. Genesis refuses overwrite; incompatible stores are refused. Execution/storage schema 2 requires fresh state and rejects schema-1 stores/backups before opening Fjall. No development-state migration is provided. Public fixture signers are insecure development identities; keep real assets separate.
 
-The current execution/storage profile is **schema 2**, which excludes phantom account tombstones. Its version is bound into the genesis ID, local commit encoding, and proof profile. It requires fresh development genesis/data; schema-1 databases and backups are rejected before the storage engine opens them. Preserve the original binary and data for existing schema-1 instances, including the accepted P1-P3 baseline. Do not rewrite ownership markers or reuse those databases with this runtime. Export new transition fixtures and rebuild/repin the guest for schema 2; this change does not migrate an existing chain or activate settlement.
-
-On Linux or macOS, create the directory with `mkdir -p .local/devnet`; the Cargo commands are the same. This is not a claim of production storage qualification on every platform.
-
-From a second terminal, inspect the node you just started:
+CUDA builds use:
 
 ```powershell
-$health = Invoke-RestMethod http://127.0.0.1:19745/health
-if ($health.chain_id -ne 424245) { throw 'Unexpected chain identity' }
-$health
+cargo build --release -p alephium-l2-node --features cuda --locked
 ```
 
-The development genesis funds a deliberately public, insecure fixture signer used by the helpers and tests. A separate public fixture signer also appears in lifecycle tests. These are development identities only; do not send real assets to them. Runtime data, local genesis files, and signing/publication records are not distributed with the source.
+NVCC and a supported host C++ compiler are required. `CUDA_PATH`, optional `L2_CUDA_HOST_COMPILER` and numeric `L2_CUDA_ARCH` (default/minimum 75) select installed tools. A CUDA-feature node defaults to CUDA; `--verification-backend cpu` chooses the reference/fallback and `--gpu-device` chooses the device. The [handoff](docs/HANDOFF.md#reproduction-prerequisites) supplies the declared P4 capacity parameters.
 
-## SDK identity and usage
+Node CUDA performs secp256k1 recovery and Ethereum Keccak address derivation; authoritative REVM execution and durable `SyncAll` remain ordered. Startup failure refuses to open data; a runtime mismatch/error disables CUDA before using independently validated CPU outcomes. Health exposes selected/active/verified/failure counters. This is signature/address acceleration, not full GPU EVM execution. Node CUDA and RISC Zero CUDA proving have independent build paths.
 
-The SDK accepts literal loopback HTTP endpoints and the `development/c5-v1` RPC profile. It holds no signer or private key. Applications supply canonical signed transaction bytes themselves.
+The SDK accepts loopback development endpoints and stores no signer/key. Pin chain and genesis from trusted configuration; do not trust an unknown endpoint to select its own expected identity. `submit_once` submits once; `reconcile` and `wait` query the original hash without rebroadcast. A durable admission ACK is distinct from a successful receipt.
 
-Pin both the chain ID and expected genesis ID. For this local setup, the health response may establish the initial expected genesis only after you have verified that the endpoint belongs to the process you launched with your chosen genesis. Record that identity in trusted local configuration. When connecting to another endpoint, obtain its expected identity through a trusted configuration or operator handoff; do not blindly adopt that endpoint's response as its own verification.
+RPC provides bounded raw admission, receipts, balances/nonces, code/storage, calls/gas estimation, blocks/logs and fee/connection queries. Full Ethereum provider compatibility is incomplete: transaction objects omit signature fields, local commit hashes are not consensus headers, and `stateRoot` is zero. Loopback access, development fees/context and incomplete public RPC policy remain release boundaries.
 
-For the owned node inspected above:
+## Reproducibility and remaining work
 
-```powershell
-$expectedGenesis = $health.genesis_id
-cargo run -p alephium-l2-sdk --locked --example inspect -- http://127.0.0.1:19745 424245 $expectedGenesis
-```
+Original-host GPU fixtures contain explicit **E-drive/mount guards** and require separately supplied local inputs/tools/output roots. They are not portable or public-CI qualification. Default source CI covers CPU/native paths; it does not prove CUDA hardware execution, GPU proving, power-loss behavior or production capacity. External-input integration harnesses such as `da_package` require manually supplied fixtures and are excluded from automatic prover CI, which uses library/binary checks. Execute relevant checks as one coherent bulk bundle and stop all owned test processes afterward.
 
-Rust applications connect with `Client::connect(endpoint, ExpectedNetwork { chain_id, genesis_id, rpc_profile })`. `PreparedTransaction::new` checks the supported envelope, chain, signature, and fee encoding. `submit_once` sends one request; `reconcile` and `wait` query the original transaction hash without rebroadcasting. An ambiguous response requires reconciliation, not automatic resubmission. A durable admission acknowledgement is distinct from a successful execution receipt.
+The corrected prover has **nine ordered SDK patches plus one cumulative Sppark 0.1.12 patch**, with separate patch/source/package checksums and schema-2 executable/component pins. Source/manifest matching alone is not build-lineage attestation. See [prover reproduction](docs/HANDOFF.md#patched-cuda-prover).
 
-## Runtime profile
+Native canonical DA export/reconstruction and retain-unsettled packages are present. This is a retained local P5.1 foundation; P5 settlement/public availability and consecutive-batch acceptance remain pending.
 
-- Cancun execution with canonical replay-protected legacy and EIP-1559/type-2 transactions, including access lists. Supported contract deployment is permissionless.
-- Target block interval: **200 ms**. This is a scheduling target, not a measured latency guarantee or Alephium finality.
-- Block gas limit: 30 million; logical transaction block size: 1 MiB; pending limit: 256 with one pending intent per sender.
-- Fixed zero development base fee, zero beneficiary/PREVRANDAO, and recorded Unix-second block timestamps. This is not Ethereum's dynamic fee market or consensus.
-- Optional `--min-gas-price <wei>` admission floor (default `0`). Admission rejects a transaction whose effective price at the zero base fee (legacy gas price, or the type-2 priority fee) is below it; `eth_gasPrice`, `eth_maxPriorityFeePerGas` and `/health` report it. It is node policy, not a block validity rule, so replay and transition export are unaffected. Without a floor, unfunded senders can submit zero-price transactions.
-- An admitted intent that fails validation when its block executes is resolved as `rejected` outside any block (status without a block height). Committed blocks carry executed transactions only, so every block stays representable by the transition witness.
-- The producer keeps the encoded execution checkpoint of every committed head within `--max-checkpoint-bytes <n>` (default and maximum: the 8 MiB continuation transport bound), because any head can start a proven batch. Before height 255 it also reserves the remaining growth of the 256-entry historical hash window, so filling the state budget cannot block state-preserving transfers merely because another hash must be stored. It tracks the exact size per commit and refuses a block that would exceed the bound including this reserve before writing anything; near the bound it retries the oldest intent alone, and an intent that cannot fit even alone is rejected outside any block with a `state capacity exhausted` reason. A node whose committed state plus history reserve already exceeds the configured bound refuses to start. `/health` reports actual encoded `checkpoint_bytes` and the configured `checkpoint_limit`; unused history reserve still counts against that limit. Choosing a lower bound leaves headroom; it does not qualify proving cost, recovery or exit budgets.
-- Atomic Fjall batches with `SyncAll` for genesis, admission, and committed state/receipts/head; immutable committed read views and restart reconciliation.
-- Loopback-only RPC and SDK access. The node rejects non-loopback binding.
-
-`GET /health` reports identity, head, pending count, failure state, and the unimplemented settlement status. JSON-RPC at `/` supports chain/fee queries, raw transaction admission, transaction/receipt lookup, balances/nonces, contract calls and gas estimation, code/storage reads, block lookup, and bounded log queries. Genesis-pinned `l2_*` methods support SDK identity checks. State reads use the latest committed view; pending nonce reservations are also available. Subscriptions, filter lifecycle, historical state queries, and a complete Ethereum provider interface are not implemented.
-
-Block hashes are local commit identities, not Ethereum consensus headers or authenticated L1 settlement roots. Block objects carry every standard header field so typed clients can parse them: `transactionsRoot`, `receiptsRoot` and `logsBloom` are derived from the stored envelopes and receipts, `stateRoot` is zero because there is no Ethereum state trie, and `l2Commitment` names the actual local commitment. Transaction objects omit signature fields by policy, so clients that require typed transactions (for example Alloy `eth_getTransactionByHash`) cannot parse them. `eth_feeHistory` (zero base fees, gas-weighted reward percentiles over at most 256 blocks), `eth_syncing`, `eth_accounts`, `net_listening` and `web3_clientVersion` are available for client fee estimation and connection checks. Local durable commitment does not prove Alephium settlement. Physical power-loss qualification, independent audit, public-network security, and mainnet recovery guarantees are outside the accepted development scope.
-
-## Smoke verification
-
-The existing default smoke test creates an isolated temporary development node and data directory. It exercises a signed transfer, contract deployment/call/write/revert, receipt/accounting checks, and restart consistency. It does not need a retained node or contact Alephium.
-
-Use a fresh terminal without inherited `L2_SMOKE_*` variables; clear those variables explicitly before selecting the default isolated mode:
-
-```powershell
-Get-ChildItem Env:L2_SMOKE_* | Remove-Item
-cargo test -p alephium-l2-node --locked --test smoke
-```
-
-Other focused integration targets include `identity`, `sdk`, `wallet`, `recovery`, `lifecycle`, `transition`, `precompile_transition`, and `risc0_oracle`. `checkpoint_transition` is ignored by default and requires the generated immutable fixture described in the handoff. Run affected targets when changing behavior. SDK unit checks use `cargo test -p alephium-l2-sdk --locked`. Tests and public fixture vectors provide bounded evidence; they are not a full Ethereum conformance suite or a production audit.
-
-## Fixture provenance and licenses
-
-The Ethereum reference fixture in `l2/node/fixtures/reference` is unchanged data from [ethereum/legacytests revision `1f581b8ccdc4c63acf5f2c5c1b155c690c32a8eb`](https://github.com/ethereum/legacytests/tree/1f581b8ccdc4c63acf5f2c5c1b155c690c32a8eb). `manifest.json` pins its source and hashes; the MIT `LICENSE` is retained. The test selects one Geth-filled Cancun case and compares gas and complete post-state through the runtime's normalizer/private overlay. It does not establish full execution conformance.
-
-The historical receipt oracle in `l2/node/fixtures/risc0-groth16` retains nine unchanged Solidity files from [RISC Zero Ethereum revision `365e7b2db4f620fa256580c27558d2623362b9ae`](https://github.com/risc0/risc0-ethereum/tree/365e7b2db4f620fa256580c27558d2623362b9ae) and [OpenZeppelin revision `acd4ff74de833399287ed6b31b4debf6b2b35527`](https://github.com/OpenZeppelin/openzeppelin-contracts/tree/acd4ff74de833399287ed6b31b4debf6b2b35527). `sources.json` records exact source URLs, hashes, lengths, and licenses. Two Groth16 verifier files carry GPL-3.0 notices; other RISC Zero files are Apache-2.0, and OpenZeppelin SafeCast is MIT. Original notices and the separate `LICENSE-GPL-3.0`, `LICENSE-APACHE-2.0`, and `LICENSE-MIT-OPENZEPPELIN` texts are retained. These third-party licenses do not declare a license for all first-party code.
-
-Ralph arithmetic derives from Gnark revision `703a260c2f991d01e245adf53d20f76af4210c5f` and retains its Apache-2.0 notices/license. Receipt/key/factory compositions and certain verifier-tool files carry GPL-3.0-or-later headers; the retained GPL license is in the node oracle fixture. Preserve each source notice rather than assigning one license to all authored or derived code. The Ralph compiler uses Scala/JVM, and proof generation uses external native tooling/Docker; the complete dependency stack is not claimed to be pure Rust.
-
-The committed `artifact.json` is required by the EVM oracle test and verifier-tool. It contains a public historical receipt, not a proof authorizing this L2's transitions. Public signed transaction/proof vectors are fixture data; tools should not print signatures, signing material, signed envelopes, or proof payloads.
-
-Normal builds and tests do not require Solidity compilation. Optional rebuilding uses `examples/compile_risc0_oracle.rs` with an externally supplied, hash-pinned Windows solc `0.8.30+commit.73712a01.Windows.msvc` binary (SHA-256 `ccbd3ed44d5fbd26fe039702d403421f1212d2e8752e3cbe3bfd074986911586`):
-
-```powershell
-cargo run -p alephium-l2-node --locked --example compile_risc0_oracle -- <path-to-pinned-solc.exe>
-```
-
-The rebuild verifies source/license hashes and compiler identity, then regenerates the artifact and local compiler records. Generated `compiler-input.json`, `compiler-output.json`, and `compilation.json` are omitted from this package. The local build uses via-IR, 10,000 optimizer runs, Cancun, and no metadata bytecode hash; it does not claim byte-for-byte equivalence with upstream published binaries.
+Preserve file-specific licenses. GPU headers/reference data retain MIT provenance; Gnark-derived arithmetic retains Apache-2.0; applicable receipt/key/factory/tooling files retain GPL-3.0-or-later notices. See [GPU provenance](l2/gpu/vendor/provenance.json) and [license](l2/gpu/vendor/LICENSE). These notices do not declare a blanket license for all first-party code.

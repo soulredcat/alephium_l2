@@ -30,7 +30,12 @@ fn export_actual_transfer_deploy_write_revert_with_full_prefix() -> Result<(), S
     } else {
         temporary.path().to_path_buf()
     };
-    let genesis = development::genesis();
+    let mut genesis = development::genesis();
+    if let Ok(capacity) = std::env::var("L2_TRANSITION_CAPACITY") {
+        genesis.capacity = serde_json::from_str(&capacity)
+            .map_err(|_| "Invalid explicit development transition capacity")?;
+        genesis.validate()?;
+    }
     let mut store = Store::open(&root.join("source"), &genesis)?;
     let receipts = exercise_history(&mut store, &root)?;
     // Exercise export/core agreement from a history containing a local discard,

@@ -2,6 +2,7 @@ mod block;
 mod blocks;
 mod capacity;
 mod checkpoint;
+mod commit_phases;
 mod discard;
 use crate::protocol::encoding;
 pub(crate) mod path;
@@ -11,9 +12,10 @@ mod transactions;
 mod view;
 
 pub use capacity::CapacityExceeded;
+pub use commit_phases::CommitPhaseTimings;
 pub use view::ReadView;
 
-use crate::protocol::{Account, Genesis, Head};
+use crate::protocol::{Account, Capacity, Genesis, Head};
 use alloy_primitives::keccak256;
 use fjall::{
     Database, Keyspace, KeyspaceCreateOptions, OwnedWriteBatch as WriteBatch, PersistMode,
@@ -31,9 +33,11 @@ pub struct Store {
     database: Database,
     items: Keyspace,
     chain_id: u64,
+    profile_capacity: Capacity,
     block_index_complete: bool,
     /// Checkpoint size tracking, enabled by the block producer.
     capacity: Option<capacity::Capacity>,
+    last_commit_phases: Option<CommitPhaseTimings>,
     terminal: Arc<AtomicBool>,
     #[cfg(test)]
     fail_next: bool,
@@ -77,8 +81,10 @@ impl Store {
             database,
             items,
             chain_id: genesis.chain_id,
+            profile_capacity: genesis.capacity,
             block_index_complete: false,
             capacity: None,
+            last_commit_phases: None,
             terminal: Arc::new(AtomicBool::new(false)),
             #[cfg(test)]
             fail_next: false,
@@ -145,9 +151,21 @@ impl Store {
             items: self.items.clone(),
             head,
             chain_id: self.chain_id,
+            profile_capacity: self.profile_capacity,
             block_index_complete: self.block_index_complete,
             terminal: self.terminal.clone(),
         })
+    }
+
+    /// Immutable limits authenticated by the persisted canonical genesis.
+    pub fn capacity(&self) -> Capacity {
+        self.profile_capacity
+    }
+
+    /// Available only after successful durability and snapshot capture for the
+    /// latest commit attempt. Admission/discard writes are not block commits.
+    pub fn last_commit_phases(&self) -> Option<CommitPhaseTimings> {
+        self.last_commit_phases
     }
 
     /// Offline/restart equality only; never used in admission or block production.
@@ -204,3 +222,11 @@ mod failure_test;
 #[cfg(test)]
 #[path = "storage/capacity_tests.rs"]
 mod capacity_tests;
+
+#[cfg(test)]
+#[path = "storage/profile_tests.rs"]
+mod profile_tests;
+
+#[cfg(test)]
+#[path = "storage/extended_codec_tests.rs"]
+mod extended_codec_tests;

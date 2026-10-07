@@ -94,7 +94,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         _ => unreachable!(),
     };
-    println!("{}", serde_json::to_string_pretty(&report)?);
+    let mut console = report;
+    if let Some(object) = console.as_object_mut() {
+        let count = object
+            .get("transaction_hashes")
+            .and_then(|value| value.as_array())
+            .map(Vec::len);
+        if let Some(count) = count.filter(|count| *count > 256) {
+            // Full identities stay in the private export report. Large batches
+            // must not turn safe CLI metadata into megabytes of console output.
+            object.remove("transaction_hashes");
+            object.insert("transaction_hash_count".into(), count.into());
+        }
+    }
+    println!("{}", serde_json::to_string_pretty(&console)?);
     Ok(())
 }
 

@@ -3,20 +3,29 @@
 mod batch;
 mod changes;
 mod database;
+#[cfg(feature = "cuda")]
+pub(crate) mod gpu_inputs;
+mod prepared;
 mod simulation;
 mod transaction;
 
+#[cfg(test)]
+mod prepared_tests;
 #[cfg(test)]
 mod reference_tests;
 #[cfg(test)]
 mod touch_tests;
 
 pub use batch::{ExecutionBatch, execute_block};
+pub(crate) use prepared::{
+    PreparedTransaction, execute_prepared_block, prepare_for_chain, validate_prepared,
+};
 pub use simulation::simulate;
 pub use transaction::{inspect, inspect_for_chain};
 
 use crate::protocol::{BlockContext, TransactionInfo};
 use crate::storage::ReadView;
+use revm::context::TxEnv;
 use revm::context::{ContextSetters, JournalTr};
 use revm::handler::{Handler, MainnetHandler};
 
@@ -26,6 +35,7 @@ pub fn is_infrastructure_error(error: &str) -> bool {
         || error == "fatal EVM host failure"
         || error == "invalid recorded block context"
         || error == "block gas limit is outside the development profile"
+        || error == "prepared transaction belongs to a different chain"
 }
 
 /// Validate admission without running contract code or changing committed state.
@@ -36,6 +46,15 @@ pub fn validate(
     context: BlockContext,
 ) -> Result<TransactionInfo, String> {
     let (tx, info) = transaction::decode(raw, view.chain_id())?;
+    validate_transaction(view, tx, info, context)
+}
+
+fn validate_transaction(
+    view: ReadView,
+    tx: TxEnv,
+    info: TransactionInfo,
+    context: BlockContext,
+) -> Result<TransactionInfo, String> {
     let mut evm = batch::engine(view, context)?;
     evm.ctx.set_tx(tx);
     let result = MainnetHandler::default().validate(&mut evm);

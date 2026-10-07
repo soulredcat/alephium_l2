@@ -1,3 +1,4 @@
+use crate::protocol::hash::{Digest, Sha256};
 use crate::{
     encoding::Encoder,
     journal::TransitionJournal,
@@ -5,7 +6,6 @@ use crate::{
     records,
 };
 use alloy_primitives::{Address, B256, keccak256};
-use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 
 /// Exactly the native-state subset of ReadView::state_digest: canonical address

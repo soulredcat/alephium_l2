@@ -1,8 +1,7 @@
 //! Capture a complete execution witness from one committed database snapshot.
 use super::{ReadView, encoding::key, records};
 use crate::protocol::checkpoint::{
-    CHECKPOINT_SCHEMA, CheckpointAccount, CheckpointBlockHash, CheckpointCode, CheckpointSlot,
-    ExecutionCheckpoint, MAX_CHECKPOINT_ACCOUNTS, MAX_CHECKPOINT_BYTES,
+    CheckpointAccount, CheckpointBlockHash, CheckpointCode, CheckpointSlot, ExecutionCheckpoint,
 };
 use alloy_primitives::{Address, B256, U256, keccak256};
 use fjall::Readable;
@@ -23,18 +22,19 @@ impl ReadView {
         let mut accounts = Vec::new();
         let mut referenced = BTreeSet::new();
         let mut bytes = 0usize;
+        let limit = self.capacity().runtime_checkpoint_bytes()?;
         for item in self.snapshot.prefix(&self.items, [0x10]) {
             let (account_key, record) = item.into_inner().map_err(super::engine_error)?;
-            if account_key.len() != 21 || accounts.len() >= MAX_CHECKPOINT_ACCOUNTS {
+            if account_key.len() != 21 || accounts.len() >= limit / 105 {
                 return Err("Invalid checkpoint account key or count".into());
             }
-            add_bytes(&mut bytes, 105)?;
+            add_bytes(&mut bytes, 105, limit)?;
             let address = Address::from_slice(&account_key[1..]);
             let (account, deleted) = records::decode_account(&record)?;
             let slots = if deleted {
                 Vec::new()
             } else {
-                self.checkpoint_slots(address, account.storage_epoch, &mut bytes)?
+                self.checkpoint_slots(address, account.storage_epoch, &mut bytes, limit)?
             };
             if !deleted && account.code_hash != B256::ZERO && account.code_hash != keccak256([]) {
                 referenced.insert(account.code_hash);
@@ -52,20 +52,21 @@ impl ReadView {
         let mut codes = Vec::with_capacity(referenced.len());
         for hash in referenced {
             let code = self.code(hash)?;
-            add_bytes(&mut bytes, 36 + code.len())?;
+            add_bytes(&mut bytes, 36 + code.len(), limit)?;
             codes.push(CheckpointCode { hash, bytes: code });
         }
         let mut block_hashes = Vec::new();
         for height in self.head.height.saturating_sub(255)..=self.head.height {
-            add_bytes(&mut bytes, 40)?;
+            add_bytes(&mut bytes, 40, limit)?;
             block_hashes.push(CheckpointBlockHash {
                 height,
                 hash: self.block_hash(height)?,
             });
         }
         let checkpoint = ExecutionCheckpoint {
-            schema: CHECKPOINT_SCHEMA,
+            schema: self.capacity().checkpoint_schema(),
             chain_id: self.chain_id(),
+            capacity: self.capacity(),
             genesis_id: genesis.genesis_id,
             head: self.head.clone(),
             accounts,
@@ -81,6 +82,7 @@ impl ReadView {
         address: Address,
         epoch: u64,
         bytes: &mut usize,
+        limit: usize,
     ) -> Result<Vec<CheckpointSlot>, String> {
         let mut prefix = key(0x11, address.as_slice());
         prefix.extend(epoch.to_be_bytes());
@@ -90,7 +92,7 @@ impl ReadView {
             if slot_key.len() != 61 || value.len() != 32 || U256::from_be_slice(&value).is_zero() {
                 return Err("Invalid active checkpoint storage record".into());
             }
-            add_bytes(bytes, 64)?;
+            add_bytes(bytes, 64, limit)?;
             slots.push(CheckpointSlot {
                 key: U256::from_be_slice(&slot_key[29..]),
                 value: U256::from_be_slice(&value),
@@ -100,11 +102,11 @@ impl ReadView {
     }
 }
 
-fn add_bytes(bytes: &mut usize, additional: usize) -> Result<(), String> {
+fn add_bytes(bytes: &mut usize, additional: usize, limit: usize) -> Result<(), String> {
     *bytes = bytes
         .checked_add(additional)
         .ok_or("Checkpoint collection size overflow")?;
-    if *bytes > MAX_CHECKPOINT_BYTES {
+    if *bytes > limit {
         return Err("Checkpoint collection exceeds its byte bound".into());
     }
     Ok(())

@@ -14,9 +14,15 @@ pub(crate) fn fixture_id(domain: &[u8]) -> [u8; 32] {
     id
 }
 
-pub(crate) fn child_state(compiled: &Compiled, id: &[u8; 32], fields: Vec<Value>) -> Value {
+pub(crate) fn child_state(
+    compiled: &Compiled,
+    id: &[u8; 32],
+    fields: Vec<Value>,
+    payload: &str,
+) -> Value {
     json!({"address": staged_cases::contract_address(id), "bytecode": compiled.bytecode,
-        "codeHash": compiled.evidence["productionCodeHash"], "immFields": [word(FP_MODULUS)],
+        "codeHash": compiled.evidence["productionCodeHash"],
+        "immFields": [word(FP_MODULUS), staged_cases::bytes(payload)],
         "mutFields": fields, "asset": asset()})
 }
 

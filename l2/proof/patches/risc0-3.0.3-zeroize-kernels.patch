@@ -1,0 +1,22 @@
+diff --git a/risc0/sys/kernels/zkp/cuda/eltwise.cu b/risc0/sys/kernels/zkp/cuda/eltwise.cu
+--- a/risc0/sys/kernels/zkp/cuda/eltwise.cu
++++ b/risc0/sys/kernels/zkp/cuda/eltwise.cu
+@@ -69,14 +69,16 @@ eltwise_sum_fpext(Fp* out, const FpExt* in, const uint32_t to_add, const uint32_
+   }
+ }
+ 
+-__global__ void eltwise_zeroize_fp(Fp* elems) {
++__global__ void eltwise_zeroize_fp(Fp* elems, uint32_t count) {
+   uint idx = blockIdx.x * blockDim.x + threadIdx.x;
++  if (idx >= count) return;
+   Fp val = elems[idx];
+   elems[idx] = val.zeroize();
+ }
+ 
+-__global__ void eltwise_zeroize_fpext(FpExt* elems) {
++__global__ void eltwise_zeroize_fpext(FpExt* elems, uint32_t count) {
+   uint idx = blockIdx.x * blockDim.x + threadIdx.x;
++  if (idx >= count) return;
+   FpExt val = elems[idx];
+   elems[idx] = val.zeroize();
+ }

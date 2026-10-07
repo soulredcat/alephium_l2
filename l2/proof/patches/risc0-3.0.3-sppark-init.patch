@@ -1,0 +1,12 @@
+diff --git a/risc0/sys/kernels/zkp/cuda/supra/ntt.cu b/risc0/sys/kernels/zkp/cuda/supra/ntt.cu
+--- a/risc0/sys/kernels/zkp/cuda/supra/ntt.cu
++++ b/risc0/sys/kernels/zkp/cuda/supra/ntt.cu
+@@ -5,7 +5,7 @@ extern "C" RustError::by_value sppark_init() {
+   uint32_t lg_domain_size = 1;
+   uint32_t domain_size = 1U << lg_domain_size;
+ 
+-  std::vector<fr_t> inout{domain_size};
++  std::vector<fr_t> inout(domain_size);
+   inout[0] = fr_t(1);
+   inout[1] = fr_t(1);
+ 

@@ -2,10 +2,7 @@ use super::{
     RpcError, parameters,
     read::{hash, storage_error},
 };
-use crate::{
-    protocol::{BLOCK_BYTES, Receipt},
-    storage::ReadView,
-};
+use crate::{protocol::Receipt, storage::ReadView};
 use alloy_consensus::{Transaction, TxEnvelope, transaction::SignerRecoverable};
 use alloy_eips::eip2718::{Decodable2718, Encodable2718};
 use alloy_primitives::B256;
@@ -127,7 +124,7 @@ pub(super) fn encode(view: &ReadView, hash: B256) -> Result<Option<Value>, RpcEr
     if serde_json::to_vec(&result)
         .map_err(|_| RpcError::from("Cannot encode transaction"))?
         .len()
-        > BLOCK_BYTES
+        > view.capacity().block_bytes
     {
         return Err("Transaction exceeds RPC response bound".into());
     }

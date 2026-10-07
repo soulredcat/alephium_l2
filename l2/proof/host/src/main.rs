@@ -2,11 +2,16 @@
 //! Receipt generation does not approve a guest or establish Alephium settlement.
 
 mod artifacts;
+mod backend;
 mod cli;
+mod diagnostics;
+mod input_stream;
 mod inputs;
 mod prover;
+mod resources;
+mod transition_input;
 
-use alephium_l2_transition_core::{decode_input, prove_input};
+use alephium_l2_transition_core::prove_input;
 use sha2::{Digest, Sha256};
 use std::process::ExitCode;
 
@@ -31,13 +36,18 @@ fn main() -> ExitCode {
 
 fn run() -> HostResult<String> {
     let config = cli::Config::parse()?;
-    let local_prover = cli::LocalProver::validate(config.prover_sha256, config.output.is_some())?;
-    let input = inputs::read_bounded(&config.input, inputs::MAX_INPUT_BYTES)?;
+    let resources = resources::ResourcePolicy::select(config.workers, config.max_cycles)?;
+    // SAFETY: plain CLI startup is still single-threaded; no SDK or native
+    // execution has run, and no concurrently running environment reader exists.
+    unsafe { resources.apply_at_startup() };
+    let local_prover = cli::LocalProver::validate(&config)?;
+    let worker = resources::WorkerGuard::acquire(&local_prover.server_path)?;
+    let mut input = transition_input::TransitionInput::open(&config.input)?;
     let program = inputs::read_bounded(&config.guest, inputs::MAX_PROGRAM_BYTES)?;
-    let bundle =
-        decode_input(&input).map_err(|_| "Invalid private transition JSON; payload suppressed.")?;
+    let bundle = input.replay_input()?;
     let expected = prove_input(&bundle)
         .map_err(|_| "Independent core transition replay failed; payload suppressed.")?;
+    drop(bundle);
     let expected_journal = expected
         .encode()
         .map_err(|_| "Cannot encode independently derived transition journal.")?;
@@ -45,18 +55,32 @@ fn run() -> HostResult<String> {
     let Some(output) = &config.output else {
         let preflight = prover::preflight(
             &local_prover,
-            &input,
+            &mut input,
             &program,
             &expected_journal,
             config.expected_image_id,
+            resources.max_cycles,
         )?;
         // Cycle counts and the public journal digest only; never inputs.
         return Ok(format!(
             "Execution-only preflight passed: Halted(0), {} user cycles in {} segments \
-             (ceiling {}), journal sha256 {}",
+             (ceiling {}, segment limit 2^{}, Rayon workers {}/{}, available logical CPUs {}, one owned job), \
+             worker lock [{}], backend {} ({}; CUDA runtime qualification {}), \
+             input schema {} / {} bytes (limit {}), journal sha256 {}",
             preflight.user_cycles,
             preflight.segments,
-            prover::SESSION_LIMIT_CYCLES,
+            preflight.max_cycles,
+            prover::SEGMENT_LIMIT_PO2,
+            resources.workers,
+            resources.worker_ceiling,
+            resources.available_logical_cpus,
+            worker.access_policy,
+            local_prover.backend.requested_backend,
+            local_prover.backend.provenance_status,
+            local_prover.backend.runtime_cuda_qualification,
+            input.schema,
+            input.length,
+            input.byte_limit,
             hex::encode(Sha256::digest(&expected_journal))
         ));
     };
@@ -65,12 +89,13 @@ fn run() -> HostResult<String> {
     let output = artifacts::ArtifactDirectory::create(output)?;
     let proof = prover::generate(
         &local_prover,
-        &input,
+        &mut input,
         &program,
         &expected_journal,
         config.expected_image_id,
+        resources.max_cycles,
     )?;
-    let report = output.persist(&input, &program, &expected, &proof)?;
+    let report = output.persist(&input, &program, &expected, &proof, &resources, &worker)?;
     Ok(format!(
         "Transition proof generated and verified: {}",
         report.display()

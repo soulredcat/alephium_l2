@@ -21,6 +21,12 @@ risc0-zkvm = { git = "https://github.com/risc0/risc0", rev = "14b5d588dd01cf4f7b
 risc0-binfmt = { git = "https://github.com/risc0/risc0", rev = "14b5d588dd01cf4f7ba804d8bb0a61264e6ae2c6", default-features = false, features = ["std"] }
 risc0-zkos-v1compat = { git = "https://github.com/risc0/risc0", rev = "14b5d588dd01cf4f7ba804d8bb0a61264e6ae2c6", default-features = false }
 
+# Stable legacy bigint syscall support for the pinned RV32IM guest. Native
+# arithmetic remains selected outside the guest target; no unstable bigint2.
+[patch.crates-io]
+k256 = { git = "https://github.com/risc0/RustCrypto-elliptic-curves", rev = "f913b0aa4646e85d4a2095742ce86abf25bb1354" }
+crypto-bigint = { git = "https://github.com/risc0/RustCrypto-crypto-bigint", rev = "3ab63a6f1048833f7047d5a50532e4a4cc789384" }
+
 [profile.release]
 overflow-checks = true
 panic = "abort"
