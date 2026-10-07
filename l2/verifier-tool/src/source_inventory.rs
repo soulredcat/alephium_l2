@@ -1,4 +1,5 @@
 //! Exact source closures, separate from public ABI selection.
+#[derive(Clone, Copy)]
 pub struct Source {
     pub filename: &'static str,
     pub origin: &'static str,

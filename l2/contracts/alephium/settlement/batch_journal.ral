@@ -1,0 +1,83 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Exact existing schema-four journal policy; no receipt or asset authority.
+Abstract Contract Risc0BatchJournal() {
+    const JOURNAL_INVALID_ENCODING = 1600
+    const JOURNAL_WRONG_DOMAIN = 1601
+    const JOURNAL_WRONG_IDENTITY = 1602
+    const JOURNAL_STALE_PARENT = 1603
+    const JOURNAL_MESSAGES_UNSUPPORTED = 1604
+    const JOURNAL_INVALID_TIME = 1605
+    const JOURNAL_INVALID_COUNTERS = 1606
+    const MAX_U64 = 18446744073709551615
+    const MAX_BLOCKS = 256
+    const ZERO32 = #0000000000000000000000000000000000000000000000000000000000000000
+    // Four exact length-prefixed strings and schema, before network at byte161.
+    const JOURNAL_HEADER = #00000027616c65706869756d2d6c322d7472616e736974696f6e2d70726f6f662f6a6f75726e616c2f7634000000040000002863616e63756e2d61757468656e746963617465642d636865636b706f696e742d62617463682f763400000011646576656c6f706d656e742f63352d76310000002d5245564d2034332e302e332f43616e63756e202873616d65206c6962726172792061732070726f647563657229
+    const MESSAGE_DOMAIN = #616c65706869756d2d6c322f61757468656e746963617465642d6d657373616765732f7631
+    const GENESIS_COMMIT_DOMAIN = #616c65706869756d2d6c322d646576656c6f706d656e742f67656e657369732d636f6d6d69742f7631
+
+    fn journalU64(journal: ByteVec, offset: U256) -> U256 {
+        return u256From8Byte!(byteVecSlice!(journal, offset, offset + 8))
+    }
+
+    fn journalCheckEncoding(journal: ByteVec) -> () {
+        assert!(size!(journal) == 898, JOURNAL_INVALID_ENCODING)
+        assert!(byteVecSlice!(journal, 0, 161) == JOURNAL_HEADER, JOURNAL_INVALID_ENCODING)
+        let required = [162, 194, 234, 266, 322, 402, 490, 522, 554, 586, 690, 722, 754, 866]
+        for (let mut i = 0; i < 14; i = i + 1) {
+            assert!(byteVecSlice!(journal, required[i], required[i] + 32) != ZERO32,
+                JOURNAL_WRONG_IDENTITY)
+        }
+        let parentHeight = journalU64(journal, 306)
+        let blocks = journalU64(journal, 466)
+        let transactions = journalU64(journal, 474)
+        assert!(blocks > 0 && blocks <= MAX_BLOCKS && journalU64(journal, 482) == blocks,
+            JOURNAL_INVALID_COUNTERS)
+        assert!(transactions >= blocks && transactions <= blocks * 4294967295,
+            JOURNAL_INVALID_COUNTERS)
+        assert!(parentHeight < MAX_U64 && parentHeight <= MAX_U64 - blocks,
+            JOURNAL_INVALID_COUNTERS)
+        assert!(journalU64(journal, 298) == parentHeight + 1
+            && journalU64(journal, 386) == parentHeight + blocks, JOURNAL_INVALID_COUNTERS)
+        assert!(journalU64(journal, 394) >= journalU64(journal, 314), JOURNAL_INVALID_TIME)
+        let genesis = byteVecSlice!(journal, 234, 266)
+        assert!(byteVecSlice!(journal, 354, 386) == genesis
+            && byteVecSlice!(journal, 434, 466) == genesis, JOURNAL_WRONG_IDENTITY)
+        if (parentHeight == 0) {
+            assert!(journalU64(journal, 314) == 0
+                && byteVecSlice!(journal, 322, 354) == sha256!(GENESIS_COMMIT_DOMAIN ++ genesis),
+                JOURNAL_STALE_PARENT)
+        }
+        let domain = byteVecSlice!(journal, 161, 226)
+        let emptyInbox = sha256!(MESSAGE_DOMAIN ++ #696e626f78 ++ domain ++ genesis ++ #0000000000000000)
+        let emptyOutbox = sha256!(MESSAGE_DOMAIN ++ #6f7574626f78 ++ domain ++ genesis ++ #0000000000000000)
+        assert!(journalU64(journal, 818) == 0 && journalU64(journal, 858) == 0
+            && byteVecSlice!(journal, 786, 818) == emptyInbox
+            && byteVecSlice!(journal, 826, 858) == emptyOutbox, JOURNAL_MESSAGES_UNSUPPORTED)
+    }
+
+    fn journalCheckIdentity(journal: ByteVec, network: ByteVec, l1Genesis: ByteVec,
+        chain: U256, genesis: ByteVec, profile: ByteVec) -> () {
+        assert!(byteVecSlice!(journal, 161, 162) == network
+            && byteVecSlice!(journal, 162, 194) == l1Genesis
+            && byteVecSlice!(journal, 194, 226) == selfContractId!(), JOURNAL_WRONG_DOMAIN)
+        assert!(journalU64(journal, 226) == chain
+            && byteVecSlice!(journal, 234, 266) == genesis
+            && byteVecSlice!(journal, 266, 298) == profile, JOURNAL_WRONG_IDENTITY)
+    }
+
+    fn journalCheckParent(journal: ByteVec, head: ByteVec, root: ByteVec) -> () {
+        assert!(byteVecSlice!(journal, 306, 386) == head
+            && byteVecSlice!(journal, 490, 522) == root, JOURNAL_STALE_PARENT)
+    }
+
+    fn journalCheckTime(journal: ByteVec, futureAllowanceSeconds: U256) -> () {
+        let nowMs = blockTimeStamp!()
+        let seconds = journalU64(journal, 394)
+        assert!(futureAllowanceSeconds <= MAX_U64 / 1000 && seconds <= MAX_U64 / 1000,
+            JOURNAL_INVALID_TIME)
+        let futureMs = futureAllowanceSeconds * 1000
+        assert!(nowMs <= MAX_U64 - futureMs && seconds * 1000 <= nowMs + futureMs,
+            JOURNAL_INVALID_TIME)
+    }
+}

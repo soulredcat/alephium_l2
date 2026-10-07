@@ -12,6 +12,9 @@ pub enum Suite {
     StagedReceipt,
     StagedFactory,
     StagedFactoryFlow,
+    SettlementFactoryCompile,
+    SettlementFactoryFlow,
+    SettlementData,
 }
 
 use crate::receipt_sources::{RECEIPT, RESIDUE_DIAGNOSTIC, RESIDUE_RECEIPT};
@@ -20,8 +23,8 @@ use crate::source_inventory::{BASE, CURVES, MILLER, PAIRING_ARITHMETIC, TOWER};
 use crate::staged_sources::{STAGED_FACTORY, STAGED_RECEIPT};
 
 impl Suite {
-    pub fn sources(self) -> &'static [Source] {
-        match self {
+    pub fn sources(self) -> Vec<Source> {
+        let sources = match self {
             Self::Base => BASE,
             Self::Tower => TOWER,
             Self::PairingArithmetic => PAIRING_ARITHMETIC,
@@ -32,7 +35,11 @@ impl Suite {
             Self::ResidueDiagnostic => RESIDUE_DIAGNOSTIC,
             Self::StagedReceipt => STAGED_RECEIPT,
             Self::StagedFactory | Self::StagedFactoryFlow => STAGED_FACTORY,
-        }
+            Self::SettlementFactoryCompile | Self::SettlementFactoryFlow | Self::SettlementData => {
+                return crate::settlement_sources::sources();
+            }
+        };
+        sources.to_vec()
     }
 
     pub fn probe(self) -> &'static str {
@@ -47,6 +54,10 @@ impl Suite {
             Self::ResidueDiagnostic => "Risc0ResidueDiagnostics",
             Self::StagedReceipt => "Risc0StagedReceiptVerifier",
             Self::StagedFactory | Self::StagedFactoryFlow => "Risc0StagedReceiptFactory",
+            Self::SettlementFactoryCompile | Self::SettlementFactoryFlow => {
+                "Risc0BatchSettlementFactory"
+            }
+            Self::SettlementData => "Risc0BatchData",
         }
     }
 
@@ -62,11 +73,22 @@ impl Suite {
             Self::ResidueDiagnostic => "residue-diagnostic.ral.json",
             Self::StagedReceipt => "staged_receipt.ral.json",
             Self::StagedFactory | Self::StagedFactoryFlow => "staged_factory.ral.json",
+            Self::SettlementFactoryCompile | Self::SettlementFactoryFlow => {
+                "settlement_factory.ral.json"
+            }
+            Self::SettlementData => "batch_data.ral.json",
         }
     }
 
     pub fn param_names(self) -> Vec<String> {
-        if matches!(self, Self::StagedFactory | Self::StagedFactoryFlow) {
+        if matches!(
+            self,
+            Self::StagedFactory
+                | Self::StagedFactoryFlow
+                | Self::SettlementData
+                | Self::SettlementFactoryCompile
+                | Self::SettlementFactoryFlow
+        ) {
             return vec![];
         }
         if matches!(self, Self::StagedReceipt) {
@@ -98,7 +120,10 @@ impl Suite {
             | Self::ResidueDiagnostic
             | Self::StagedReceipt
             | Self::StagedFactory
-            | Self::StagedFactoryFlow => {
+            | Self::StagedFactoryFlow
+            | Self::SettlementFactoryCompile
+            | Self::SettlementFactoryFlow
+            | Self::SettlementData => {
                 unreachable!("Receipt parameters returned above")
             }
         };
@@ -109,10 +134,26 @@ impl Suite {
     }
 
     pub fn entry(self) -> &'static str {
+        if matches!(
+            self,
+            Self::SettlementFactoryCompile | Self::SettlementFactoryFlow
+        ) {
+            return "getAnchor";
+        }
+        if matches!(self, Self::SettlementData) {
+            return "getHash";
+        }
         if matches!(self, Self::StagedReceipt) {
             return "begin";
         }
-        if matches!(self, Self::StagedFactory | Self::StagedFactoryFlow) {
+        if matches!(
+            self,
+            Self::StagedFactory
+                | Self::StagedFactoryFlow
+                | Self::SettlementFactoryCompile
+                | Self::SettlementFactoryFlow
+                | Self::SettlementData
+        ) {
             return "create";
         }
         if matches!(self, Self::Receipt | Self::ResidueReceipt) {
@@ -142,6 +183,10 @@ impl Suite {
     pub fn return_types(self) -> &'static [&'static str] {
         match self {
             Self::StagedReceipt | Self::StagedFactory | Self::StagedFactoryFlow => &["ByteVec"],
+            Self::SettlementFactoryCompile | Self::SettlementFactoryFlow => {
+                &["U256", "ByteVec", "ByteVec"]
+            }
+            Self::SettlementData => &["ByteVec"],
             Self::Base => &["U256", "U256"],
             Self::ResidueDiagnostic => &["[U256;24]"],
             Self::Tower
@@ -166,6 +211,8 @@ impl Suite {
             Self::StagedReceipt => 39,
             Self::StagedFactory => 0,
             Self::StagedFactoryFlow => 32,
+            Self::SettlementFactoryCompile | Self::SettlementData => 0,
+            Self::SettlementFactoryFlow => crate::settlement::MAX_REQUESTS,
         }
     }
 
@@ -184,6 +231,12 @@ impl Suite {
             Self::StagedFactoryFlow => {
                 "canonical-staged-factory-synthetic-creation-and-receipt-gate"
             }
+            Self::SettlementFactoryCompile | Self::SettlementData => {
+                "canonical-settlement-data-source-compilation-only"
+            }
+            Self::SettlementFactoryFlow => {
+                "p5-native-settlement-interface-and-synthetic-authority-boundaries"
+            }
         }
     }
 
@@ -200,6 +253,9 @@ impl Suite {
             }
             Self::StagedReceipt | Self::StagedFactory | Self::StagedFactoryFlow => {
                 "same BN254 receipt; exact mutable stage transition chain and canonical origin gate"
+            }
+            Self::SettlementFactoryCompile | Self::SettlementFactoryFlow | Self::SettlementData => {
+                "pinned receipt; independent canonical journal, checkpoint, data and ancestry checks"
             }
         }
     }

@@ -1,0 +1,25 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Immutable complete inline reconstruction transcript. No status or caller flags.
+Contract Risc0BatchData(data: ByteVec) {
+    const MAX_INLINE_DA_BYTES = 3000
+    const DATA_INVALID_SIZE = 1630
+
+    fn checkSize() -> () {
+        assert!(size!(data) > 0 && size!(data) <= MAX_INLINE_DA_BYTES, DATA_INVALID_SIZE)
+    }
+
+    pub fn getHash() -> ByteVec {
+        checkSize()
+        return sha256!(data)
+    }
+
+    pub fn getLength() -> U256 {
+        checkSize()
+        return size!(data)
+    }
+
+    pub fn getData() -> ByteVec {
+        checkSize()
+        return data
+    }
+}

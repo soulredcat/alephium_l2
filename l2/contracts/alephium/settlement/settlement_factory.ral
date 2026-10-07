@@ -1,0 +1,185 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Persistent canonical ancestry outside the unchanged one-use arithmetic child.
+// Fresh hash-keyed sessions do not reserve the head. No refund, pruning or bridge.
+Contract Risc0BatchSettlementFactory(proofTemplateId: ByteVec, proofTemplateCodeHash: ByteVec,
+    dataTemplateId: ByteVec, dataTemplateCodeHash: ByteVec, approvedImageId: ByteVec,
+    l1Network: ByteVec, l1GenesisId: ByteVec, l2ChainId: U256, l2GenesisId: ByteVec,
+    executionProfile: ByteVec, genesisCheckpointSha256: ByteVec, genesisHead: ByteVec,
+    transportLimits: ByteVec, maxFutureSeconds: U256,
+    mut initialized: U256, mut acceptedHead: ByteVec, mut acceptedRoot: ByteVec)
+    extends Risc0BatchJournal() {
+    const EXPECTED_FP_MODULUS = 21888242871839275222246405745257275088696311157297823662689037894645226208583
+    const MAX_INLINE_DA_BYTES = 3000
+    const SETTLEMENT_INVALID_POLICY = 1610
+    const SETTLEMENT_WRONG_NETWORK = 1611
+    const SETTLEMENT_ALREADY_INITIALIZED = 1612
+    const SETTLEMENT_NOT_INITIALIZED = 1613
+    const SETTLEMENT_WRONG_CHECKPOINT = 1614
+    const SETTLEMENT_WRONG_CODE = 1615
+    const SETTLEMENT_WRONG_DATA = 1616
+    const SETTLEMENT_CHILD_MISSING = 1617
+    const SETTLEMENT_WRONG_BINDING = 1618
+    const SETTLEMENT_NOT_ACCEPTED = 1619
+    const SETTLEMENT_WRONG_STATEMENT = 1620
+    const SETTLEMENT_WRONG_INITIAL_STATE = 1621
+    const ZERO_HEAD = #0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+    const ROOT_DOMAIN = #616c65706869756d2d6c322f636f6e74696e756174696f6e2d726f6f742f7632
+    const SESSION_DOMAIN = #414c50482f4c322f62617463682d73657373696f6e2f7631
+    const PROOF_PATH = #703576312f70726f6f662f
+    const DATA_PATH = #703576312f646174612f
+    const SELECTOR = #73c457ba
+    const PAYLOAD_DOMAIN = #414c50482f4c322f7374616765647061796c6f61642f7631
+    const STATEMENT_DOMAIN = #414c50482f4c322f737461676564726563656970742f7631
+
+    fn checkPolicy() -> () {
+        assert!(size!(l1Network) == 1 && l1Network == networkId!(), SETTLEMENT_WRONG_NETWORK)
+        assert!(size!(proofTemplateId) == 32 && proofTemplateId != ZERO32
+            && size!(proofTemplateCodeHash) == 32 && proofTemplateCodeHash != ZERO32
+            && size!(dataTemplateId) == 32 && dataTemplateId != ZERO32
+            && size!(dataTemplateCodeHash) == 32 && dataTemplateCodeHash != ZERO32
+            && size!(approvedImageId) == 32 && approvedImageId != ZERO32
+            && size!(l1GenesisId) == 32 && l1GenesisId != ZERO32
+            && l2ChainId > 0 && l2ChainId <= MAX_U64
+            && size!(l2GenesisId) == 32 && l2GenesisId != ZERO32
+            && size!(executionProfile) == 32 && executionProfile != ZERO32
+            && size!(genesisCheckpointSha256) == 32 && genesisCheckpointSha256 != ZERO32,
+            SETTLEMENT_INVALID_POLICY)
+        assert!(size!(genesisHead) == 80 && size!(transportLimits) == 32
+            && size!(acceptedHead) == 80 && size!(acceptedRoot) == 32,
+            SETTLEMENT_INVALID_POLICY)
+        assert!(journalU64(genesisHead, 0) == 0 && journalU64(genesisHead, 8) == 0
+            && byteVecSlice!(genesisHead, 16, 48) == sha256!(GENESIS_COMMIT_DOMAIN ++ l2GenesisId)
+            && byteVecSlice!(genesisHead, 48, 80) == l2GenesisId, SETTLEMENT_INVALID_POLICY)
+        let checkpointLimit = journalU64(transportLimits, 0)
+        let transcriptLimit = journalU64(transportLimits, 8)
+        let inputLimit = journalU64(transportLimits, 16)
+        assert!(checkpointLimit > 0 && transcriptLimit > 0 && inputLimit <= 134217728
+            && inputLimit == checkpointLimit + transcriptLimit + 1048576
+            && journalU64(transportLimits, 24) == 8388608
+            && maxFutureSeconds <= MAX_U64 / 1000, SETTLEMENT_INVALID_POLICY)
+    }
+
+    fn checkCandidate(journal: ByteVec) -> () {
+        checkPolicy()
+        assert!(initialized == 1 && acceptedRoot != ZERO32, SETTLEMENT_NOT_INITIALIZED)
+        journalCheckEncoding(journal)
+        journalCheckIdentity(journal, l1Network, l1GenesisId, l2ChainId, l2GenesisId, executionProfile)
+        journalCheckParent(journal, acceptedHead, acceptedRoot)
+        journalCheckTime(journal, maxFutureSeconds)
+    }
+
+    fn checkDigests(sealDigest: ByteVec, auxiliaryDigest: ByteVec) -> () {
+        assert!(size!(sealDigest) == 32 && size!(auxiliaryDigest) == 32,
+            SETTLEMENT_WRONG_BINDING)
+    }
+
+    fn sessionKey(journalDigest: ByteVec, sealDigest: ByteVec, auxiliaryDigest: ByteVec) -> ByteVec {
+        return sha256!(SESSION_DOMAIN ++ selfContractId!() ++ approvedImageId
+            ++ journalDigest ++ sealDigest ++ auxiliaryDigest)
+    }
+
+    fn payloadId(journalDigest: ByteVec, sealDigest: ByteVec, auxiliaryDigest: ByteVec) -> ByteVec {
+        return sha256!(PAYLOAD_DOMAIN ++ SELECTOR ++ approvedImageId
+            ++ journalDigest ++ sealDigest ++ auxiliaryDigest)
+    }
+
+    fn checkProof(childId: ByteVec, payload: ByteVec) -> () {
+        assert!(contractExists!(childId), SETTLEMENT_CHILD_MISSING)
+        assert!(contractCodeHash!(childId) == proofTemplateCodeHash, SETTLEMENT_WRONG_CODE)
+        let (modulus, childPayload) = Risc0StagedReceiptVerifier(childId).getBinding()
+        assert!(modulus == EXPECTED_FP_MODULUS && childPayload == payload, SETTLEMENT_WRONG_BINDING)
+    }
+
+    fn checkData(dataId: ByteVec, expectedHash: ByteVec) -> () {
+        assert!(contractExists!(dataId), SETTLEMENT_CHILD_MISSING)
+        assert!(contractCodeHash!(dataId) == dataTemplateCodeHash, SETTLEMENT_WRONG_CODE)
+        let length = Risc0BatchData(dataId).getLength()
+        assert!(length > 0 && length <= MAX_INLINE_DA_BYTES
+            && Risc0BatchData(dataId).getHash() == expectedHash, SETTLEMENT_WRONG_DATA)
+    }
+
+    // Immutable approved bytes are a genesis trust anchor, not a caller validity flag.
+    // The root hashes the actual bytes with this actual contract identity exactly.
+    @using(updateFields = true, checkExternalCaller = false)
+    pub fn initializeGenesis(checkpoint: ByteVec) -> ByteVec {
+        checkPolicy()
+        assert!(initialized == 0, SETTLEMENT_ALREADY_INITIALIZED)
+        assert!(acceptedHead == ZERO_HEAD && acceptedRoot == ZERO32, SETTLEMENT_WRONG_INITIAL_STATE)
+        assert!(size!(checkpoint) > 0 && size!(checkpoint) <= journalU64(transportLimits, 0)
+            && sha256!(checkpoint) == genesisCheckpointSha256, SETTLEMENT_WRONG_CHECKPOINT)
+        let root = sha256!(ROOT_DOMAIN ++ executionProfile ++ l1Network ++ l1GenesisId
+            ++ selfContractId!() ++ transportLimits ++ checkpoint)
+        acceptedHead = genesisHead
+        acceptedRoot = root
+        initialized = 1
+        return root
+    }
+
+    // Equal proposals reuse their canonical children; different proposals coexist.
+    // Registration does not reserve or advance acceptedHead/acceptedRoot.
+    @using(preapprovedAssets = true, checkExternalCaller = false)
+    pub fn createCandidate(journal: ByteVec, sealDigest: ByteVec, auxiliaryDigest: ByteVec,
+        data: ByteVec) -> (ByteVec, ByteVec, ByteVec) {
+        checkCandidate(journal)
+        checkDigests(sealDigest, auxiliaryDigest)
+        let expectedData = byteVecSlice!(journal, 866, 898)
+        assert!(size!(data) > 0 && size!(data) <= MAX_INLINE_DA_BYTES
+            && sha256!(data) == expectedData, SETTLEMENT_WRONG_DATA)
+        assert!(contractCodeHash!(proofTemplateId) == proofTemplateCodeHash
+            && contractCodeHash!(dataTemplateId) == dataTemplateCodeHash, SETTLEMENT_WRONG_CODE)
+        let journalDigest = sha256!(journal)
+        let key = sessionKey(journalDigest, sealDigest, auxiliaryDigest)
+        let payload = payloadId(journalDigest, sealDigest, auxiliaryDigest)
+        let proofPath = PROOF_PATH ++ key
+        let dataPath = DATA_PATH ++ key
+        let proofId = subContractId!(proofPath)
+        let dataId = subContractId!(dataPath)
+        if (!contractExists!(dataId)) {
+            let (dataImm, dataMut) = Risc0BatchData.encodeFields!(data)
+            let createdData = copyCreateSubContract!{callerAddress!() -> ALPH: minimalContractDeposit!()}(
+                dataPath, dataTemplateId, dataImm, dataMut)
+            assert!(createdData == dataId, SETTLEMENT_WRONG_BINDING)
+        }
+        if (!contractExists!(proofId)) {
+            let zero18 = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+            let zero12 = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+            let zero6 = [0, 0, 0, 0, 0, 0]
+            let (proofImm, proofMut) = Risc0StagedReceiptVerifier.encodeFields!(
+                EXPECTED_FP_MODULUS, payload, 0, 0, zero18, zero18,
+                zero12, zero12, zero12, zero6, ZERO32)
+            let createdProof = copyCreateSubContract!{callerAddress!() -> ALPH: minimalContractDeposit!()}(
+                proofPath, proofTemplateId, proofImm, proofMut)
+            assert!(createdProof == proofId, SETTLEMENT_WRONG_BINDING)
+        }
+        checkData(dataId, expectedData)
+        checkProof(proofId, payload)
+        return key, proofId, dataId
+    }
+
+    // All predicates are re-evaluated before the atomic persistent head update.
+    @using(updateFields = true, checkExternalCaller = false)
+    pub fn finalize(journal: ByteVec, sealDigest: ByteVec, auxiliaryDigest: ByteVec) -> ByteVec {
+        checkCandidate(journal)
+        checkDigests(sealDigest, auxiliaryDigest)
+        let journalDigest = sha256!(journal)
+        let key = sessionKey(journalDigest, sealDigest, auxiliaryDigest)
+        let proofId = subContractId!(PROOF_PATH ++ key)
+        let dataId = subContractId!(DATA_PATH ++ key)
+        checkData(dataId, byteVecSlice!(journal, 866, 898))
+        checkProof(proofId, payloadId(journalDigest, sealDigest, auxiliaryDigest))
+        let statement = sha256!(STATEMENT_DOMAIN ++ proofId ++ SELECTOR ++ approvedImageId
+            ++ journalDigest ++ sealDigest ++ auxiliaryDigest)
+        let (phase, acceptedStatement) = Risc0StagedReceiptVerifier(proofId).getAcceptance()
+        assert!(phase == 3, SETTLEMENT_NOT_ACCEPTED)
+        assert!(acceptedStatement == statement, SETTLEMENT_WRONG_STATEMENT)
+        let nextRoot = byteVecSlice!(journal, 522, 554)
+        acceptedHead = byteVecSlice!(journal, 386, 466)
+        acceptedRoot = nextRoot
+        return nextRoot
+    }
+
+    pub fn getAnchor() -> (U256, ByteVec, ByteVec) {
+        checkPolicy()
+        return initialized, acceptedHead, acceptedRoot
+    }
+}

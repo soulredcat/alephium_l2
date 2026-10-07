@@ -4,6 +4,16 @@ Rust EVM development node, SDK, transition proof components and Ralph verifier t
 
 [docs/HANDOFF.md](docs/HANDOFF.md) defines the accepted scope, reproduction prerequisites and remaining P5-P8 checklist. [handoff/status.json](handoff/status.json) contains curated results. This repository distributes source and public reference fixtures; current private databases, signed witnesses, receipts, proof binaries, local identities, tool installations and raw execution evidence are excluded. Source publication does not deploy or settle a chain.
 
+## P5.1 source checkpoint
+
+The published source adds strict schema-four settlement journal decoding, independently pinned domain/profile/accepted-parent policy, contiguous ancestry checks and L1-relative timestamp validation. Native core/host aggregate checks passed. New Ralph settlement/data sources compose the unchanged staged proof child with a persistent accepted head/root, hash-keyed candidate children and immutable inline reconstruction data. Registration does not reserve or advance the head; finalization rechecks proof/data/identity/parent predicates before updating it. The guest and staged arithmetic child are unchanged.
+
+The latest target bundle passed **21 local checks and compiled three contracts, with zero VM execution requests**. Its valid existing receipt belonged to a foreign settlement domain, so the adapter refused it before VM execution and reported `MATCHED_DOMAIN_PROOF_REQUIRED`. This is an authority-boundary result, **not a positive settlement case**. The compiled factory, staged child and data contract were 3,330 / 31,216 / 85 bytes.
+
+This checkpoint supports **at most 3,000 inline DA bytes**, with combined contract fields required to stay **strictly below 3,072 bytes**. It is a partial transport/session implementation: no chunked large-data transport, pruning/refund/bridge activation or proven public consecutive-batch flow is claimed. P5.1-P5.3 remain unchecked. Positive qualification requires proofs bound to the intended actual network and factory; public P5 acceptance still requires **two consecutive real public-testnet batches** and independent retrieval/reconstruction. The old P4 journal cannot be edited or relabelled to supply that domain.
+
+[Settlement interfaces and CLI templates](docs/HANDOFF.md#p51-source-checkpoint-and-settlement-cli) describe the current boundary. Publisher lifecycle implementation and public integration remain subsequent owning work; no P5.2 completion is implied.
+
 ## Accepted P4 scope
 
 | Area | Recorded development result |
@@ -72,7 +82,7 @@ Original-host GPU fixtures contain explicit **E-drive/mount guards** and require
 
 The corrected prover has **nine ordered SDK patches plus one cumulative Sppark 0.1.12 patch**, with separate patch/source/package checksums and schema-2 executable/component pins. Source/manifest matching alone is not build-lineage attestation. See [prover reproduction](docs/HANDOFF.md#patched-cuda-prover).
 
-Native canonical DA export/reconstruction and retain-unsettled packages are present. This is a retained local P5.1 foundation; P5 settlement/public availability and consecutive-batch acceptance remain pending.
+Native canonical DA export/reconstruction and retain-unsettled packages are present. P5.1 now also has the locally qualified settlement source checkpoint described above; matched-domain positive execution, public availability and consecutive-batch acceptance remain pending.
 
 Preserve file-specific licenses. GPU headers/reference data retain MIT provenance; Gnark-derived arithmetic retains Apache-2.0; applicable receipt/key/factory/tooling files retain GPL-3.0-or-later notices. See [GPU provenance](l2/gpu/vendor/provenance.json) and [license](l2/gpu/vendor/LICENSE). These notices do not declare a blanket license for all first-party code.
 

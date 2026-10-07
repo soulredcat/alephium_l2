@@ -48,6 +48,18 @@ pub fn compile(
         fs::write(source_dir.join(name), bytes).map_err(|_| "Cannot snapshot Ralph source")?;
         source_records.push(json!({"path": origin, "sha256": sha256(bytes), "bytes": bytes.len()}));
     }
+    // Compiler input contains reviewed source only, never a private receipt or
+    // transaction. Preserve local diagnostics without emitting them publicly.
+    let compiler_stdout = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(evidence.join("compiler.stdout.log"))
+        .map_err(|_| "Cannot create local compiler diagnostics")?;
+    let compiler_stderr = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(evidence.join("compiler.stderr.log"))
+        .map_err(|_| "Cannot create local compiler diagnostics")?;
     let mut command = Command::new("java");
     command
         .arg("-Dfile.encoding=UTF-8")
@@ -59,8 +71,8 @@ pub fn compile(
         .arg(jvm_path(&artifact_dir)?)
         .arg("-w")
         .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
+        .stdout(Stdio::from(compiler_stdout))
+        .stderr(Stdio::from(compiler_stderr));
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -92,7 +104,7 @@ pub fn compile(
     };
     if !status.success() {
         return Err(format!(
-            "Pinned offline compiler failed with exit code {:?}; output suppressed",
+            "Pinned offline compiler failed with exit code {:?}; local diagnostics preserved",
             status.code()
         ));
     }
@@ -131,6 +143,20 @@ pub fn compile(
     let method_index = *public_methods
         .get(suite.entry())
         .ok_or("Missing selected entry index")?;
+    let settlement_artifact = matches!(
+        suite,
+        Suite::SettlementFactoryCompile | Suite::SettlementFactoryFlow | Suite::SettlementData
+    );
+    let (immutable_fields, mutable_fields) = field_counts(&artifact)?;
+    let field_estimate = if settlement_artifact {
+        None
+    } else if matches!(suite, Suite::StagedReceipt) {
+        Some(2656)
+    } else if matches!(suite, Suite::StagedFactory | Suite::StagedFactoryFlow) {
+        Some(128)
+    } else {
+        Some(32)
+    };
     Ok(Compiled {
         bytecode: bytecode.into(),
         method_index,
@@ -143,9 +169,10 @@ pub fn compile(
             "project": "artifacts/.project.json", "projectSha256": sha256(&project_bytes),
             "projectSourceHashesMatched": true, "compilerOptionsUsed": project["compilerOptionsUsed"],
             "executableSha256": sha256(&executable), "executableBytes": executable.len(),
-            "immutableFieldCount": if matches!(suite, Suite::StagedFactory | Suite::StagedFactoryFlow) {4} else if matches!(suite, Suite::StagedReceipt) {2} else {1},
-            "mutableFieldCount": if matches!(suite, Suite::StagedReceipt) {81} else {0},
-            "estimatedVmFieldBytes": if matches!(suite, Suite::StagedReceipt) {2656} else if matches!(suite, Suite::StagedFactory | Suite::StagedFactoryFlow) {128} else {32},
+            "immutableFieldCount": immutable_fields,
+            "mutableFieldCount": mutable_fields,
+            "estimatedVmFieldBytes": field_estimate,
+            "fieldBytesDependOnConstructorValues": settlement_artifact,
             "fieldsSignature": artifact["fieldsSig"], "publicMethodIndices": public_methods,
             "serializedFieldBytesIndependentlyMeasured": false,
             "expectedFpModulus": FP_MODULUS, "loadedContracts": 1, "methodIndex": method_index,
@@ -153,6 +180,44 @@ pub fn compile(
             "externalJvmDependency": true, "jvmExecutableIndependentlyPinned": false
         }),
     })
+}
+
+fn field_counts(artifact: &Value) -> Result<(usize, usize), String> {
+    let types = artifact["fieldsSig"]["types"]
+        .as_array()
+        .ok_or("Missing artifact field types")?;
+    let mutable = artifact["fieldsSig"]["isMutable"]
+        .as_array()
+        .ok_or("Missing artifact field mutability")?;
+    if types.len() != mutable.len() {
+        return Err("Artifact field inventory length differs".into());
+    }
+    let mut counts = (0usize, 0usize);
+    for (kind, is_mutable) in types.iter().zip(mutable) {
+        let kind = kind.as_str().ok_or("Artifact field type is not text")?;
+        let width = if let Some(array) = kind
+            .strip_prefix("[U256;")
+            .and_then(|value| value.strip_suffix(']'))
+        {
+            array
+                .parse::<usize>()
+                .map_err(|_| "Artifact field array count invalid")?
+        } else {
+            1
+        };
+        let count = if is_mutable
+            .as_bool()
+            .ok_or("Artifact mutability is not boolean")?
+        {
+            &mut counts.1
+        } else {
+            &mut counts.0
+        };
+        *count = count
+            .checked_add(width)
+            .ok_or("Artifact field count overflow")?;
+    }
+    Ok(counts)
 }
 
 fn validate_project(project: &Value, suite: Suite) -> Result<(), String> {

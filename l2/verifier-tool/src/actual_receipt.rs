@@ -49,13 +49,19 @@ impl Input {
 }
 
 pub(crate) struct Prepared {
-    fixture: staged_cases::Fixture,
-    changed_proof: staged_cases::Fixture,
-    evidence: Value,
+    pub(crate) fixture: staged_cases::Fixture,
+    pub(crate) changed_proof: staged_cases::Fixture,
+    pub(crate) evidence: Value,
+    // Keep the exact bytes verified above; settlement adapters never reopen them.
+    pub(crate) journal: Vec<u8>,
 }
 
 pub(crate) fn prepare(input: &Input) -> Result<Prepared, String> {
     load(input, &factory_service::canonical_child_id()?)
+}
+
+pub(crate) fn prepare_for_child(input: &Input, child_id: &[u8; 32]) -> Result<Prepared, String> {
+    load(input, child_id)
 }
 
 /// The caller separately approves the compiled guest and its input provenance.
@@ -209,6 +215,7 @@ fn load(input: &Input, child_id: &[u8; 32]) -> Result<Prepared, String> {
         fixture,
         changed_proof,
         evidence,
+        journal,
     })
 }
 

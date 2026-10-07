@@ -22,6 +22,9 @@ mod residue_cases;
 mod residue_witness;
 mod service;
 mod session_binding;
+mod settlement;
+mod settlement_schema;
+mod settlement_sources;
 mod source_inventory;
 mod staged_canonical;
 mod staged_cases;
@@ -56,7 +59,20 @@ fn run() -> Result<(), String> {
         return Err("--no-run-time-limit must occur once as the first option".into());
     }
     let mut actual = None;
+    let mut settlement_data = None;
     let (suite, jar, evidence) = match args.as_slice() {
+        [flag, mode, jar, evidence, receipt, image, journal, data, checkpoint]
+            if flag == "--mainnet-readonly" && mode == "--settlement-actual" => {
+                actual = Some(actual_receipt::Input::new(receipt, image, journal)?);
+                let checkpoint = checkpoint.to_str().ok_or("Checkpoint pin must be UTF-8 hex")?;
+                if checkpoint.len() != 64 || !checkpoint.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+                    return Err("Checkpoint pin must have exact 32-byte hex width".into());
+                }
+                settlement_data = Some((PathBuf::from(data), checkpoint.to_owned()));
+                (Suite::SettlementFactoryFlow, PathBuf::from(jar), PathBuf::from(evidence))
+            },
+        [flag, mode, jar, evidence] if flag == "--mainnet-readonly" && mode == "--settlement-compile" =>
+            (Suite::SettlementFactoryCompile, PathBuf::from(jar), PathBuf::from(evidence)),
         [flag, mode, jar, evidence, receipt, image, journal]
             if flag == "--mainnet-readonly" && mode == "--staged-actual" => {
                 actual = Some(actual_receipt::Input::new(receipt, image, journal)?);
@@ -122,6 +138,11 @@ fn run() -> Result<(), String> {
         report["limits"]["parameterBindingRequests"] = json!(0);
         report["limits"]["maxVmRequests"] = json!(actual_receipt::MAX_REQUESTS);
     }
+    if matches!(suite, Suite::SettlementFactoryFlow) {
+        report["scope"] = json!(suite.scope());
+        report["limits"]["caseCount"] = json!(settlement::MAX_REQUESTS);
+        report["limits"]["maxVmRequests"] = json!(settlement::MAX_REQUESTS);
+    }
     let outcome = service::execute(
         &jar,
         &evidence,
@@ -129,6 +150,9 @@ fn run() -> Result<(), String> {
         suite,
         &mut report,
         actual.as_ref(),
+        settlement_data
+            .as_ref()
+            .map(|(path, pin)| (path.as_path(), pin.as_str())),
     );
     report["elapsedMilliseconds"] = json!(started.elapsed().as_millis());
     if let Err(error) = &outcome {
@@ -137,7 +161,7 @@ fn run() -> Result<(), String> {
     write_report(&evidence.join("report.json"), &report)?;
     outcome?;
     println!(
-        "Verifier qualification passed: {} bounded VM cases; safe report.json saved. Gate 0 remains open.",
+        "Verifier bundle passed: {} aggregate checks; safe report.json saved. Gate 0 remains open.",
         report["executedCases"].as_u64().unwrap_or(0)
     );
     Ok(())

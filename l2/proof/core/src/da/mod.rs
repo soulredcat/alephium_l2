@@ -44,4 +44,9 @@ impl DecodedCheckpointDa {
     pub fn encoding(&self) -> &DaEncodingEvidence {
         &self.encoding
     }
+
+    /// Borrowed canonical input only; consumers must authenticate its old root.
+    pub fn parent_checkpoint(&self) -> &ExecutionCheckpoint {
+        &self.checkpoint
+    }
 }

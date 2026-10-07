@@ -111,6 +111,38 @@ cargo run --release --locked -p alephium-l2-transition-prover --bin l2-da -- \
 
 Select the candidate journal independently from trusted genesis/profile/runtime context; the manifest cannot choose its own pins. Native package reports deliberately keep `proof_accepted=false`, `settlement_eligible=false` and `public_data_available=false`. Public retention/retrieval and canonical L1 parent eligibility remain P5/P6 work. This local foundation does not complete P5.
 
+## P5.1 source checkpoint and settlement CLI
+
+This is a locally qualified **source checkpoint**, not P5 acceptance. [Native settlement policy](../l2/proof/core/src/settlement/policy.rs) checks independently pinned network/genesis/factory, L2 identity/profile, exact accepted parent/head/root, contiguous batch/end heights and overflow-safe L1-relative timestamp bounds. [Journal decoding](../l2/proof/core/src/settlement/journal.rs) enforces the existing exact thirty-field schema-four encoding and empty-message policy. Native core/host aggregate checks passed; the guest image and staged arithmetic child have not changed.
+
+[Ralph settlement factory](../l2/contracts/alephium/settlement/settlement_factory.ral) derives the initial root with its actual contract identity, keeps the accepted head/root and creates canonical hash-keyed proof/data children. Identical proposals reuse checked children; distinct stalled proposals do not reserve the head. Finalization rechecks ancestry, policy, data identity/hash and completed child statement before the persistent update. [Immutable batch data](../l2/contracts/alephium/settlement/batch_data.ral) exposes complete inline bytes/hash/length. These are implemented source responsibilities, not a proven live lifecycle.
+
+The latest aggregate target result consists of **18 native policy/bootstrap checks, two compiled ABI/resource checks and one foreign-domain refusal: 21 checks, zero VM execution requests**. Three contracts compiled: settlement factory 3,330 bytes, unchanged staged verifier 31,216 bytes and batch data 85 bytes. The reused real receipt was independently checked, but its journal domain did not match the fixed network-zero adapter. The harness returned `MATCHED_DOMAIN_PROOF_REQUIRED`, `canonicalSyntheticAccepted=false` and `publicTestnetAccepted=false`. Its top-level local `passed=true` must not be interpreted as positive settlement execution.
+
+The implemented inline data bound is **3,000 bytes**; local source/layout checks require combined immutable/mutable fields **strictly below 3,072 bytes**. This does not qualify the retained larger DA fixture or arbitrary configured node capacity for L1 transport. Chunked large-data publication, pruning/refund policy, bridge messages and release operating guarantees remain outside this checkpoint. No matching-domain positive VM trajectory or two-batch public-testnet flow has passed.
+
+The following source interfaces use a separately supplied pinned Ralph compiler, new local output directories and externally provided private inputs. `--no-run-time-limit` must be first; ordinary request failure timeouts remain separate. Compilation-only mode does not contact the node:
+
+```bash
+cargo run -p alephium-l2-verifier-tool --locked -- \
+  --no-run-time-limit --mainnet-readonly --settlement-compile \
+  "$pinned_ralphc_jar" "$new_compile_output"
+```
+
+The actual-receipt mode has seven positional arguments after the mode: compiler, new output, receipt directory, independently reviewed image ID, independently reviewed journal SHA-256, canonical reconstruction data file, and original parent-checkpoint SHA-256:
+
+```bash
+cargo run -p alephium-l2-verifier-tool --locked -- \
+  --no-run-time-limit --mainnet-readonly --settlement-actual \
+  "$pinned_ralphc_jar" "$new_target_output" "$private_receipt_directory" \
+  "$reviewed_image_id" "$reviewed_journal_sha256" \
+  "$canonical_da_data_file" "$reviewed_original_parent_checkpoint_sha256"
+```
+
+The last pin comes from the receipt's independently reviewed **original input parent checkpoint**, not its final output checkpoint and not a package-selected trust anchor. The data file is the exact canonical reconstruction preimage for the journal's DA commitment, not `transition.bin`. The current adapter uses a separately verified fixed network-zero loopback read-only route. A foreign-domain receipt is refused before VM calls; this command is neither public-testnet deployment nor a route for relabelling the existing P4 proof.
+
+A positive synthetic flow needs a receipt for its actual matching factory/network. Completing public P5 requires the approved real public-testnet deployment/domain and **two new correctly scoped consecutive proofs**, reusable-session acceptance, stale-parent/replay rejection, available public data and independent matching reconstruction. Real deployment/funding/signing authority and publisher ambiguity/reorg handling are separate requirements. Reuse accepted P4/source evidence; do not mutate an old journal or synthesize proof success.
+
 ## Fixed phase checklist
 
 | Done | Task | Required output / current boundary |
@@ -118,7 +150,7 @@ Select the candidate journal independently from trusted genesis/profile/runtime 
 | [x] | P4.1 Actual execution | Actual state/witness and all canonical statement bindings reconciled for the 10-TX fixture; current empty-message policy and P6 message rules specified. |
 | [x] | P4.2 Real proof | Current guest/program/prover and real Groth16 receipt match independent native execution under the declared development profile. |
 | [x] | P4.3 Staged acceptance | Independent pairing and same-receipt canonical synthetic positive/negative target bundle passed within target bounds. |
-| [ ] | P5.1 Settlement and data | Consecutive canonical batches, bounded publication, authenticated clean reconstruction and eligibility/retention; local DA preparation is not public acceptance. |
+| [ ] | P5.1 Settlement and data | Local journal/policy/Ralph source checkpoint qualified; matching-domain positive VM, consecutive canonical batches, public data/reconstruction and eligibility/retention acceptance remain pending. |
 | [ ] | P5.2 Publisher lifecycle | Durable intent before signing, single submission, ambiguity reconciliation, confirmation/reorg handling and bounded session abandonment/progress. |
 | [ ] | P5.3 Public-testnet integration | Two consecutive real settled batches, stale-parent/replay rejection, independent reconstruction and bounded recovery evidence. |
 | [ ] | P6.1 Custody/deposits | Authenticated confirmed domain-bound one-asset inbox, exact backing/reorg handling, credit once and matching runtime/guest messages. |
@@ -131,7 +163,7 @@ Select the candidate journal independently from trusted genesis/profile/runtime 
 | [ ] | P8.2 Actual mainnet flow | Canonical real proofs, independently reconstructed data and bounded real-asset flow with exact backing. |
 | [ ] | P8.3 Operational handover | Observed declared operation, reconciliation/alerts/recovery readiness and usable handover. |
 
-Additional release risks include the singleton verifier's lack of reusable/abandonment lifecycle, DA retention/availability, timestamp eligibility, forced-message censorship, fee funding, typed/public RPC compatibility and platform privacy/durability. No independent release audit, general maximum-capacity guarantee or mainnet acceptance follows from the P4 result. Preserve file-specific third-party licenses; no blanket first-party license is declared.
+Additional release risks include qualification of the new hash-keyed session lifecycle, public DA completeness/retention, L1-time eligibility, forced-message censorship, fee funding, typed/public RPC compatibility and platform privacy/durability. No refund/pruning/bridge or positive public settlement is accepted by the local source checkpoint. No independent release audit, general maximum-capacity guarantee or mainnet acceptance follows from these results. Preserve file-specific third-party licenses; no blanket first-party license is declared.
 
 ## Wallet adapter contract
 

@@ -6,6 +6,12 @@ use std::collections::BTreeMap;
 type MethodSchema<'a> = (&'a str, Vec<&'a str>, Vec<&'a str>, Vec<&'a str>, bool);
 
 pub fn validate(artifact: &Value, suite: Suite) -> Result<BTreeMap<String, usize>, String> {
+    if matches!(
+        suite,
+        Suite::SettlementFactoryCompile | Suite::SettlementFactoryFlow | Suite::SettlementData
+    ) {
+        return crate::settlement_schema::validate(artifact, suite);
+    }
     let fields = &artifact["fieldsSig"];
     let staged = matches!(suite, Suite::StagedReceipt);
     let factory = matches!(suite, Suite::StagedFactory | Suite::StagedFactoryFlow);

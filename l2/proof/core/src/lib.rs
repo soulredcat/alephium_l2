@@ -52,6 +52,10 @@ mod state;
 #[cfg(not(target_os = "zkvm"))]
 pub mod da;
 
+// Settlement consumers decode the pinned journal; guest execution is unchanged.
+#[cfg(not(target_os = "zkvm"))]
+pub mod settlement;
+
 pub use batch::prove_batch_transition;
 pub use batch_journal::{BatchTransitionJournal, batch_data};
 pub use checkpoint_batch::{

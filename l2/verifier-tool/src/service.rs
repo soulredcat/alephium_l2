@@ -17,7 +17,38 @@ pub fn execute(
     suite: Suite,
     report: &mut Value,
     actual: Option<&actual_receipt::Input>,
+    settlement_data: Option<(&Path, &str)>,
 ) -> Result<(), String> {
+    if matches!(
+        suite,
+        Suite::SettlementFactoryCompile | Suite::SettlementFactoryFlow | Suite::SettlementData
+    ) {
+        let factory = compiler::compile(jar, evidence, deadline, suite)?;
+        report["compiler"] = factory.evidence.clone();
+        if !matches!(suite, Suite::SettlementFactoryFlow) {
+            report["passed"] = json!(true);
+            report["compilationOnly"] = json!(true);
+            report["p5Complete"] = json!(false);
+            return Ok(());
+        }
+        let actual = actual.ok_or("Settlement flow requires independently pinned receipt")?;
+        let (data_path, checkpoint_pin) =
+            settlement_data.ok_or("Settlement flow requires original checkpoint and data pins")?;
+        let prepared = crate::settlement::prepare(actual, data_path, checkpoint_pin)?;
+        let proof_dir = evidence.join("proof-template");
+        let data_dir = evidence.join("data-template");
+        std::fs::create_dir(&proof_dir)
+            .map_err(|_| "Cannot create fresh proof compilation directory")?;
+        std::fs::create_dir(&data_dir)
+            .map_err(|_| "Cannot create fresh data compilation directory")?;
+        let proof = compiler::compile(jar, &proof_dir, deadline, Suite::StagedReceipt)?;
+        let data = compiler::compile(jar, &data_dir, deadline, Suite::SettlementData)?;
+        report["childCompiler"] = proof.evidence.clone();
+        report["dataCompiler"] = data.evidence.clone();
+        let node = transport::ReadOnlyNode::connect(deadline)?;
+        report["reportedVmIdentity"] = node.identity.clone();
+        return crate::settlement::execute(&node, &factory, &proof, &data, report, prepared);
+    }
     let actual = actual.map(actual_receipt::prepare).transpose()?;
     if matches!(
         suite,
@@ -89,7 +120,12 @@ pub fn execute(
         Suite::Receipt => receipt_cases::corpus()?,
         Suite::ResidueReceipt => residue_cases::corpus()?,
         Suite::ResidueDiagnostic => diagnostic_cases::corpus()?,
-        Suite::StagedReceipt | Suite::StagedFactory | Suite::StagedFactoryFlow => {
+        Suite::StagedReceipt
+        | Suite::StagedFactory
+        | Suite::StagedFactoryFlow
+        | Suite::SettlementFactoryCompile
+        | Suite::SettlementFactoryFlow
+        | Suite::SettlementData => {
             unreachable!("Staged workflow dispatched above")
         }
     };
