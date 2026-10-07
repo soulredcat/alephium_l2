@@ -1,8 +1,8 @@
 //! P5 native journal/DA policy and one aggregate synthetic settlement trajectory.
-mod bootstrap;
+pub(crate) mod bootstrap;
 mod cases;
 mod flow;
-mod journal;
+pub(crate) mod journal;
 mod layout;
 mod policy_cases;
 mod service;

@@ -68,7 +68,7 @@ pub(super) fn load(store: &Store) -> Result<Option<PublisherSnapshot>, Publisher
         .map_err(|_| PublisherError::CorruptState)?
         .into();
     let state_hash: [u8; 32] = Sha256::digest(&state_bytes).into();
-    if header.schema != 1
+    if header.schema != 2
         || header.chain_id != store.chain_id
         || header.genesis_id != genesis
         || header.capacity != store.profile_capacity

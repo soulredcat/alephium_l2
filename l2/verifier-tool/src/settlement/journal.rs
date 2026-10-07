@@ -1,14 +1,14 @@
 //! Exact current journal boundary. Raw proof/journal values are never logged.
 use sha2::{Digest, Sha256};
 
-pub(super) const JOURNAL_BYTES: usize = 898;
-pub(super) const HEADER_BYTES: usize = 161;
-pub(super) const SCOPE: &[u8] = b"cancun-authenticated-checkpoint-batch/v4";
-pub(super) const RPC: &[u8] = b"development/c5-v1";
-pub(super) const ENGINE: &[u8] = b"REVM 43.0.3/Cancun (same library as producer)";
+pub(crate) const JOURNAL_BYTES: usize = 898;
+pub(crate) const HEADER_BYTES: usize = 161;
+pub(crate) const SCOPE: &[u8] = b"cancun-authenticated-checkpoint-batch/v4";
+pub(crate) const RPC: &[u8] = b"development/c5-v1";
+pub(crate) const ENGINE: &[u8] = b"REVM 43.0.3/Cancun (same library as producer)";
 
 #[derive(Clone, PartialEq, Eq)]
-pub(super) struct Head {
+pub(crate) struct Head {
     pub bytes: [u8; 80],
     pub height: u64,
     pub timestamp: u64,
@@ -16,7 +16,7 @@ pub(super) struct Head {
     pub genesis: [u8; 32],
 }
 
-pub(super) struct Journal {
+pub(crate) struct Journal {
     pub bytes: Vec<u8>,
     pub digest: [u8; 32],
     pub network: u8,
@@ -123,7 +123,7 @@ impl Head {
     }
 }
 
-pub(super) fn header() -> Vec<u8> {
+pub(crate) fn header() -> Vec<u8> {
     let mut out = Vec::with_capacity(HEADER_BYTES);
     framed(&mut out, b"alephium-l2-transition-proof/journal/v4");
     out.extend(4_u32.to_be_bytes());
@@ -133,16 +133,16 @@ pub(super) fn header() -> Vec<u8> {
     out
 }
 
-pub(super) fn framed(out: &mut Vec<u8>, value: &[u8]) {
+pub(crate) fn framed(out: &mut Vec<u8>, value: &[u8]) {
     out.extend((value.len() as u32).to_be_bytes());
     out.extend(value);
 }
 
-pub(super) fn sha(bytes: &[u8]) -> [u8; 32] {
+pub(crate) fn sha(bytes: &[u8]) -> [u8; 32] {
     Sha256::digest(bytes).into()
 }
 
-pub(super) fn array<const N: usize>(bytes: &[u8], offset: usize) -> Result<[u8; N], String> {
+pub(crate) fn array<const N: usize>(bytes: &[u8], offset: usize) -> Result<[u8; N], String> {
     bytes
         .get(
             offset
@@ -155,6 +155,6 @@ pub(super) fn array<const N: usize>(bytes: &[u8], offset: usize) -> Result<[u8; 
         .map_err(|_| "Invalid settlement width".into())
 }
 
-pub(super) fn u64_at(bytes: &[u8], offset: usize) -> Result<u64, String> {
+pub(crate) fn u64_at(bytes: &[u8], offset: usize) -> Result<u64, String> {
     Ok(u64::from_be_bytes(array(bytes, offset)?))
 }

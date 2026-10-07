@@ -153,7 +153,7 @@ fn capacity_schema(capacity: [u64; 3]) -> u32 {
     }
 }
 
-fn capacity_limits(capacity: [u64; 3]) -> Result<[u8; 32], String> {
+pub(crate) fn capacity_limits(capacity: [u64; 3]) -> Result<[u8; 32], String> {
     if capacity[0] < 21_000
         || !(4096..=u32::MAX as u64).contains(&capacity[1])
         || !(1..=u32::MAX as u64).contains(&capacity[2])
@@ -177,7 +177,7 @@ fn capacity_limits(capacity: [u64; 3]) -> Result<[u8; 32], String> {
     Ok(bytes)
 }
 
-fn profile(capacity: [u64; 3], schema: u32, limits: &[u8; 32]) -> [u8; 32] {
+pub(crate) fn profile(capacity: [u64; 3], schema: u32, limits: &[u8; 32]) -> [u8; 32] {
     let mut inner = Vec::new();
     for text in [
         b"alephium-l2/execution-profile/v2".as_slice(),
@@ -217,7 +217,7 @@ fn profile(capacity: [u64; 3], schema: u32, limits: &[u8; 32]) -> [u8; 32] {
     sha(&out)
 }
 
-fn read_private(path: &Path) -> Result<Vec<u8>, String> {
+pub(crate) fn read_private(path: &Path) -> Result<Vec<u8>, String> {
     if !path.is_absolute() {
         return Err("Inline DA path must be absolute".into());
     }

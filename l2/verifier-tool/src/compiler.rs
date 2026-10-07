@@ -182,7 +182,7 @@ pub fn compile(
     })
 }
 
-fn field_counts(artifact: &Value) -> Result<(usize, usize), String> {
+pub(crate) fn field_counts(artifact: &Value) -> Result<(usize, usize), String> {
     let types = artifact["fieldsSig"]["types"]
         .as_array()
         .ok_or("Missing artifact field types")?;
@@ -220,7 +220,7 @@ fn field_counts(artifact: &Value) -> Result<(usize, usize), String> {
     Ok(counts)
 }
 
-fn validate_project(project: &Value, suite: Suite) -> Result<(), String> {
+pub(crate) fn validate_project(project: &Value, suite: Suite) -> Result<(), String> {
     if project["compilerOptionsUsed"]
         != json!({
             "ignoreUnusedConstantsWarnings": false, "ignoreUnusedVariablesWarnings": false,

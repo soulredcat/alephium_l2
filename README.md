@@ -4,6 +4,18 @@ Rust EVM development node, SDK, transition proof components and Ralph verifier t
 
 [docs/HANDOFF.md](docs/HANDOFF.md) defines the accepted scope, reproduction prerequisites and remaining P5-P8 checklist. [handoff/status.json](handoff/status.json) contains curated results. This repository distributes source and public reference fixtures; current private databases, signed witnesses, receipts, proof binaries, local identities, tool installations and raw execution evidence are excluded. Source publication does not deploy or settle a chain.
 
+## P5 local integration preparation checkpoint
+
+The latest source adds [GET-only public-testnet observations](l2/sdk/src/alephium/read_node/mod.rs), an explicit [current fixed-output funding profile](l2/sdk/src/alephium/current_funding/mod.rs), [private publisher file handoff](l2/node/src/publisher/handoff/mod.rs) and an [offline draft planner CLI](l2/verifier-tool/src/testnet_plan_cli/mod.rs). These are locally qualified preparation interfaces. **P5.1-P5.3 remain unchecked**: two actual consecutive public-testnet batches, proofs for the deployed network/factory domain, available data and independent reconstruction are still required.
+
+The existing exact-head snapshot API remains intact. The new current profile validates confirmed creator transactions and fixed-output provenance, then checks latest mempool-aware availability around matching head observations. It rejects mempool creators and generated outputs. Its source commitment binds the canonical HTTPS origin, chain genesis and all three independently selected confirmation thresholds. Multiple trusted-node GETs do not establish an atomic or historical UTXO snapshot, a light-client proof or real funding by themselves.
+
+Publisher record schema 2 explicitly retains the funding model; schema-1 records fail closed rather than being reinterpreted. Retain an appropriate old binary and isolated data for recovery. `FileOutbox` contains no keys, signer or broadcast client: an export records an unavailable/ambiguous external outcome, and an imported acknowledgement cannot establish inclusion, expected effects or confirmations. Directory privacy/Windows ACLs require explicit provisioning; Windows directory-sync limitations are reported without claiming a successful durable handoff.
+
+Local aggregate qualification passed **233 SDK read/current-funding checks**, **71 publisher/file-handoff cases**, and **two pinned-compiler template scripts plus 29 pure planner checks**. All-target SDK/node/verifier Clippy with warnings denied and owned-process cleanup passed. Source observations and funding were simulated; publisher signatures were development fixtures. No live network qualification, new GPU/proof/node workload, actual deployment or live signing was performed by these bundles. These results are correctness evidence, not throughput measurements or physical power-loss qualification.
+
+The offline CLI validates explicit policy/checkpoint/artifact pins, compiles two template scripts and emits a private source-only prerequisite report. Fresh compiler-derived script pins qualify syntax/mock fixtures only; independent **live** compiled-script review remains pending. It emits no final signable plan or actual deployment identities. Actual funding/deployments, two domain-bound receipts and all **30 operation scripts** (three deployments, initialization and two sets of 13 batch operations) remain required. See [manual reproduction and draft policy schema](docs/HANDOFF.md#p5-integration-preparation-and-offline-draft-reproduction).
+
 ## P5.2 publisher and detached-signing source checkpoint
 
 The source adds a narrow Alephium v4.7.0/post-Rhone **ALPH-only full-P2PKH detached-signing profile** in [the SDK](l2/sdk/src/alephium/mod.rs), plus a [durable publisher](l2/node/src/publisher/mod.rs) backed by the existing Store. It checks canonical unsigned bytes, exact approved script/context, input ownership/funding observations, fee/deposit/change limits and compact low-S signatures over the native transaction ID. This is not a general wallet or arbitrary Alephium transaction implementation.
@@ -22,7 +34,7 @@ The latest target bundle passed **21 local checks and compiled three contracts, 
 
 This checkpoint supports **at most 3,000 inline DA bytes**, with combined contract fields required to stay **strictly below 3,072 bytes**. It is a partial transport/session implementation: no chunked large-data transport, pruning/refund/bridge activation or proven public consecutive-batch flow is claimed. P5.1-P5.3 remain unchecked. Positive qualification requires proofs bound to the intended actual network and factory; public P5 acceptance still requires **two consecutive real public-testnet batches** and independent retrieval/reconstruction. The old P4 journal cannot be edited or relabelled to supply that domain.
 
-[Settlement interfaces and CLI templates](docs/HANDOFF.md#p51-source-checkpoint-and-settlement-cli) describe the current boundary. Publisher qualification, live adapter integration and public acceptance remain subsequent owning work; no P5.2 completion is implied.
+[Settlement interfaces and CLI templates](docs/HANDOFF.md#p51-source-checkpoint-and-settlement-cli) describe the current boundary. Local publisher qualification has progressed as described above; actual adapter operation and public acceptance remain pending. No P5.2 completion is implied.
 
 ## Accepted P4 scope
 
@@ -82,7 +94,7 @@ NVCC and a supported host C++ compiler are required. `CUDA_PATH`, optional `L2_C
 
 Node CUDA performs secp256k1 recovery and Ethereum Keccak address derivation; authoritative REVM execution and durable `SyncAll` remain ordered. Startup failure refuses to open data; a runtime mismatch/error disables CUDA before using independently validated CPU outcomes. Health exposes selected/active/verified/failure counters. This is signature/address acceleration, not full GPU EVM execution. Node CUDA and RISC Zero CUDA proving have independent build paths.
 
-The SDK accepts loopback development endpoints and stores no signer/key. Pin chain and genesis from trusted configuration; do not trust an unknown endpoint to select its own expected identity. `submit_once` submits once; `reconcile` and `wait` query the original hash without rebroadcast. A durable admission ACK is distinct from a successful receipt.
+The L2 RPC client accepts loopback development endpoints and stores no signer/key. Pin chain and genesis from trusted configuration; do not trust an unknown endpoint to select its own expected identity. `submit_once` submits once; `reconcile` and `wait` query the original hash without rebroadcast. A durable admission ACK is distinct from a successful receipt.
 
 RPC provides bounded raw admission, receipts, balances/nonces, code/storage, calls/gas estimation, blocks/logs and fee/connection queries. Full Ethereum provider compatibility is incomplete: transaction objects omit signature fields, local commit hashes are not consensus headers, and `stateRoot` is zero. Loopback access, development fees/context and incomplete public RPC policy remain release boundaries.
 

@@ -75,6 +75,9 @@ pub fn observe_funding(
     source: &impl CanonicalFundingSource,
 ) -> Result<FundingObservation, AlephiumValidationError> {
     use AlephiumValidationError as Error;
+    if operation.spec.funding.model != FundingModel::ExactHeadSnapshotV1 {
+        return Err(Error::UnsupportedProfile);
+    }
     if references.is_empty() || references.len() > MAX_INPUTS {
         return Err(Error::Bounds);
     }
@@ -130,6 +133,21 @@ pub fn validate_unsigned(
     funding: &FundingObservation,
     raw: &[u8],
 ) -> Result<ValidatedUnsignedAlephium, AlephiumValidationError> {
+    if operation.spec.funding.model != FundingModel::ExactHeadSnapshotV1
+        || funding.pin.model != FundingModel::ExactHeadSnapshotV1
+    {
+        return Err(AlephiumValidationError::UnsupportedProfile);
+    }
+    validate_unsigned_observation(operation, funding, raw)
+}
+
+// Both sealed observation paths retain one exact monetary/ownership validator.
+// Source semantics stay explicit in the operation pin and private constructors.
+pub(super) fn validate_unsigned_observation(
+    operation: &ApprovedOperation,
+    funding: &FundingObservation,
+    raw: &[u8],
+) -> Result<ValidatedUnsignedAlephium, AlephiumValidationError> {
     use AlephiumValidationError as Error;
     let tx = codec::decode(raw, operation)?;
     if tx.inputs.is_empty() {
@@ -163,6 +181,15 @@ pub fn validate_unsigned(
     let mut seen = BTreeSet::new();
     let mut input_amount = U256::ZERO;
     for (input, previous) in tx.inputs.iter().zip(&funding.outputs) {
+        if previous.locking_script.len() != 33
+            || !previous.tokens.is_empty()
+            || !previous.additional_data.is_empty()
+            || previous.amount.is_zero()
+            || previous.lock_time_ms > i64::MAX as u64
+            || previous.lock_time_ms > spec.funding.timestamp_ms
+        {
+            return Err(Error::UnsupportedProfile);
+        }
         if !seen.insert(input.reference) || input.reference != previous.reference {
             return Err(Error::FundingMismatch);
         }
@@ -191,6 +218,7 @@ pub fn validate_unsigned(
                 && output.lock_time_ms == 0 => {}
         _ => return Err(Error::AmountMismatch),
     }
+    let fixed_output_count = u32::try_from(tx.outputs.len()).map_err(|_| Error::Bounds)?;
     let inputs = tx.inputs.into_iter().map(|input| input.reference).collect();
     Ok(ValidatedUnsignedAlephium {
         raw: raw.to_vec(),
@@ -200,6 +228,7 @@ pub fn validate_unsigned(
         fee,
         input_amount,
         change,
+        fixed_output_count,
     })
 }
 

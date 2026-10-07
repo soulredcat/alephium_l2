@@ -155,6 +155,7 @@ pub fn unsigned(
     let price = U256::from(100_000_000_000u64);
     let amount = U256::from(1_000_000_000_000_000_000u64) + U256::from(200_000) * price;
     let funding = FundingPin {
+        model: FundingModel::ExactHeadSnapshotV1,
         source_id: scope.canonical_source,
         network_id: scope.l1_network,
         network_genesis_id: scope.l1_genesis,

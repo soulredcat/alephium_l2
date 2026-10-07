@@ -5,8 +5,13 @@
 //! a signature binds unsigned bytes, not local intent/genesis/artifact metadata.
 mod codec;
 mod compact;
+pub mod current_funding;
+pub mod read_node;
 mod types;
 mod validation;
+
+#[cfg(test)]
+mod qualification_tests;
 
 pub use types::*;
 pub use validation::{
@@ -68,6 +73,7 @@ mod tests {
         let caller_public_key: [u8; 33] = hex::decode(VECTOR_PK).unwrap().try_into().unwrap();
         let owner = alephium_hash(&caller_public_key);
         let funding = FundingPin {
+            model: FundingModel::ExactHeadSnapshotV1,
             source_id: B256::repeat_byte(4),
             network_id: 2,
             network_genesis_id: B256::repeat_byte(5),

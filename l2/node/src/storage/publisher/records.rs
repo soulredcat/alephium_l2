@@ -3,8 +3,10 @@ use serde::{Serialize, de::DeserializeOwned};
 use sha2::{Digest, Sha256};
 use std::io::{self, Write};
 
-const DOMAIN: &[u8] = b"ALPH/L2/publisher-storage/v1";
-const VERSION: u32 = 1;
+// Schema-one evidence stays readable with its retained original binary. Never
+// treat its missing approved-policy binding as an empty/new publication queue.
+const DOMAIN: &[u8] = b"ALPH/L2/publisher-storage/v2";
+const VERSION: u32 = 2;
 pub(super) const MAX_RECORD_BYTES: usize = 16 * 1024 * 1024;
 const MAX_PAYLOAD_BYTES: usize = MAX_RECORD_BYTES - DOMAIN.len() - 40;
 

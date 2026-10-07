@@ -42,7 +42,7 @@ pub(crate) fn scope_id(scope: &Scope) -> Result<B256, PublisherError> {
 
 pub(crate) fn validate_snapshot(snapshot: &PublisherSnapshot) -> Result<(), PublisherError> {
     scope_id(&snapshot.scope)?;
-    if snapshot.schema != 1
+    if snapshot.schema != 2
         || snapshot.records.len() > MAX_PUBLICATIONS
         || snapshot.history.len() > MAX_HISTORY
         || snapshot.history.len() as u64 != snapshot.revision
@@ -102,6 +102,7 @@ pub(crate) fn validate_snapshot(snapshot: &PublisherSnapshot) -> Result<(), Publ
         if [
             intent.id,
             intent.operation_id,
+            intent.operation_policy_sha256,
             intent.tx_id,
             intent.artifact_hash,
             intent.script_hash,

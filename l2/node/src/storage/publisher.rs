@@ -50,7 +50,7 @@ impl Store {
         recovery::validate_append(previous, next)?;
         let encoded = records::encode(next).map_err(|_| PublisherError::ResourceLimit)?;
         let header = recovery::Header {
-            schema: 1,
+            schema: 2,
             chain_id: self.chain_id,
             genesis_id: self
                 .view()

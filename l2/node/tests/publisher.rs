@@ -1,6 +1,8 @@
 //! One cohesive publisher/real-Store fault and recovery bundle. No HTTP or GPU.
 #[path = "support/publisher_fixture.rs"]
 mod fixture;
+#[path = "support/publisher_handoff.rs"]
+mod handoff;
 #[path = "support/publisher_head_advance.rs"]
 mod head_advance;
 #[path = "support/publisher_late_receipt.rs"]
@@ -53,6 +55,7 @@ fn publisher_bulk_durability_fencing_ambiguity_and_reorg() {
     cases += scenarios::signature_failure(&root.join("invalid-signature"));
     cases += head_advance::exercise(&root.join("head-advance"));
     cases += late_receipt::exercise(&root.join("late-receipt"));
+    cases += handoff::exercise(&root.join("handoff"));
     let report = serde_json::json!({"passed": true, "bulkCases": cases,
         "elapsedMillis": started.elapsed().as_millis(), "liveSigning": false,
         "liveSubmission": false, "publicSettlement": false, "runtimeHttpStarted": false,

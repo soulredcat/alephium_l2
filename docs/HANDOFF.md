@@ -23,7 +23,7 @@ Current inbox/outbox counts are zero. Their empty commitments include message ki
 - L1 release uses eligible proved outbox and atomic domain-bound nullifiers, with backing separate from fees and orphan handling.
 - Forced inputs preserve execution/ordering/replay semantics without privileged cooperation; enforced inclusion/recovery and custody parameters remain P6/P7 work.
 
-Producer timestamps are Unix seconds clamped to the preceding timestamp. Replay requires exact parent/next height, nondecreasing timestamp and matching gas profile; timestamp/number/gas are committed. This does not authenticate L1 time. **A3** remains open for P6 forced-input execution or guest-validated rejection; local unproven discards cannot satisfy it. **A6** remains open for P5.1 L1-relative timestamp eligibility with a declared drift. P4 binding/specification does not resolve those later enforcement requirements.
+Producer timestamps are Unix seconds clamped to the preceding timestamp. Replay requires exact parent/next height, nondecreasing timestamp and matching gas profile; timestamp/number/gas are committed. This does not authenticate L1 time. **A3** remains open for P6 forced-input execution or guest-validated rejection; local unproven discards cannot satisfy it. P5.1 source now implements L1-relative timestamp eligibility with a declared drift; **A6** remains open for positive matched-domain/public acceptance. P4 binding/specification does not resolve those later enforcement requirements.
 
 ## Reproduction prerequisites
 
@@ -175,11 +175,59 @@ Review the resulting StatefulScript bytes and record their SHA-256 independently
 ```powershell
 $env:L2_PUBLISHER_OUTPUT = '<new absolute owned project-drive output>'
 $env:L2_PUBLISHER_SCRIPT_FILE = '<reviewed local compiled fixture script>'
-$env:L2_PUBLISHER_SCRIPT_SHA256 = '<independently reviewed fixture artifact SHA-256>'
+$env:L2_PUBLISHER_SCRIPT_SHA256 = '<independently reviewed script-bytes SHA-256>'
 cargo test -p alephium-l2-node --locked --test publisher -- --ignored
 ```
 
 This is a manual external-input interface, not an automatic CI or live-operation command. Local source qualification covers durable-return failures before/after actual Store barriers, fencing, recovery, wrong signatures/effects, ambiguity, confirmations, reorg descendants and input quarantine. It does not cover physical power loss, malicious trusted-node consensus, a live wallet/network client or real public-testnet settlement. Default external clients remain disabled.
+
+## P5 integration preparation and offline draft reproduction
+
+The latest coherent local qualification passed **233 SDK read/current-funding checks**, **71 real-Store publisher/file-handoff cases**, and **two pinned-JAR template compilations plus 29 pure planner checks**. All-target SDK/node/verifier Clippy with warnings denied passed; owned-process cleanup was verified. These bundles used simulated node/funding observations and development detached signatures. They did not qualify a live network/account, deploy contracts, create new proofs or run a node/GPU workload. P5 remains incomplete.
+
+[ReadNode](../l2/sdk/src/alephium/read_node/client.rs) is a bounded GET-only observer of an independently configured HTTPS origin, public-testnet network 1/four groups and chain 0-to-0. Its handshake accepts only the supported v4.7.0/v4.7.1 identities and checks the supplied genesis. It performs no signing, submission, automatic retry or polling. Multiple reads are non-atomic trusted-node observations; it supplies no light-client proof, historical contract-effect guarantee or exact-head funding snapshot.
+
+The existing `ExactHeadSnapshotV1`, `CanonicalFundingSource` and `observe_funding` path are preserved. The separate [current profile](../l2/sdk/src/alephium/current_funding/mod.rs) uses `CanonicalFixedCurrentV1` and `CurrentFixedFundingObservation`, through `observe_current_fixed_funding` and `validate_current_unsigned`. It binds fixed-output contents to the canonical creator unsigned transaction ID, checks confirmed creator inclusion and independently approved creator scripts, rejects mempool/generated outputs, and compares latest mempool-aware availability between matching head observations. [The policy source commitment](../l2/sdk/src/alephium/current_funding/policy.rs) includes the canonical origin, genesis, supported version/network/group policy and the distinct chain/from-group/to-group confirmation minima. Matching heads do not turn this capability into an atomic/historical UTXO proof; consensus, inclusion and spentness still trust the configured node.
+
+Publisher **record schema 2** stores the distinct funding model and refuses schema-1 records without migration or reinterpretation. Retain the old binary with its isolated old state where recovery requires it. [FileOutbox](../l2/node/src/publisher/handoff/mod.rs) is an explicitly selected local export adapter with **file format version 1**. It exports private requests after durable attempt markers, using create-new files and file/directory barriers. It contains no keys, signing implementation or broadcaster. Export returns external `Unavailable`, including after a successful directory barrier, so queued bytes remain an ambiguous outcome. Import binds the retained attempt/context, revalidates the operation and signature, and records the result once; submission responses remain audit-only and cannot mark submitted/included/confirmed or release inputs. Canonical inclusion/effect/confirmation observations are still required. Partial outputs are retained, with no automatic recreation, re-signing or rebroadcast.
+
+Unix files request mode 0600. Directory privacy and Windows ACL provisioning are the caller's responsibility. Windows directory flushing is attempted; unsupported filesystem/OS behavior retains `FileSynced` plus its explicit error, without reporting `DirectorySynced` or external success. Local repository-return fault checks around `SyncAll` do not establish physical power-loss or every-platform durability.
+
+The SDK aggregate is an ignored manual harness using the same independently compiled/pinned fixture described above:
+
+```powershell
+$env:L2_PUBLISHER_SCRIPT_FILE = '<reviewed local compiled fixture script>'
+$env:L2_PUBLISHER_SCRIPT_SHA256 = '<independently reviewed script-bytes SHA-256>'
+cargo test -p alephium-l2-sdk --locked --lib p5_read_node_and_current_fixed_funding_aggregate -- --ignored
+```
+
+Use fresh E-drive/checked-mount output for the publisher harness. Fixture scripts and private outputs are external inputs, not distributed binaries or public-CI acceptance. Compile the portable source into fresh directories using the pinned JAR, extract/review the complete production StatefulScript bytes, and pin those bytes; a raw artifact-JSON hash is not the script hash.
+
+The [offline draft CLI](../l2/verifier-tool/src/testnet_plan_cli/mod.rs) requires Java, the pinned official Ralph v4.7.0 JAR, independently selected current program/contract/source pins, a canonical genesis checkpoint and an explicit private policy JSON. It compiles two separate `Main` script contexts within one aggregate, then runs the pure simulated planner once:
+
+```powershell
+cargo run -p alephium-l2-verifier-tool --locked -- `
+  --no-run-time-limit --testnet-plan-draft `
+  $pinned_ralphc_jar $fresh_owned_output $test_only_publisher_public_key `
+  $independent_l1_genesis $private_policy_json
+```
+
+Use a separately chosen **public test-only compressed group-zero key** for mock qualification. This command neither identifies nor authorizes an actual live publisher. Output must be new and on project storage; source, scripts, compiler diagnostics and reports stay private. It emits no predicted actual contract identities or `FinalFrozenPlan`, and remains `staticPlanFinalized=false`, `signable=false`, `publicTestnetAccepted=false`. Derived script hashes from the pinned compiler are **compiler-qualified fixtures only**; independent live compiled-script review remains pending. No actual funding, genuine receipt or deployment is inferred from mock callbacks.
+
+[The exact policy parser](../l2/verifier-tool/src/testnet_plan_cli/policy.rs) requires schema 1 and refuses duplicate, unknown or missing keys. Supply these fields with independently reviewed local values:
+
+| Object | Required fields |
+| --- | --- |
+| Root | `schema`, `canonicalSource`, `l2ChainId`, `l2Genesis`, `executionProfile`, `approvedImage`, `programSha256`, `genesisCheckpointPath`, `genesisCheckpointSha256`, `genesisHead`, `capacity`, `transportLimits`, `maxFutureSeconds`, `confirmations`, `minimumContractDepositAtto`, `templateLimits`, `totalLimits`, `artifacts`, `simulation` |
+| `capacity` | `blockGas`, `blockBytes`, `maxPending` |
+| Each of exactly two `templateLimits` | `gasAmountMax`, `gasPriceMaxAtto`, `feeMaxAtto`, `depositAtto`, `totalDebitMaxAtto`, `requestBytesMax`, `responseBytesMax`, `connectTimeoutMs`, `requestTimeoutMs` |
+| `totalLimits` | `feeMaxAtto`, `depositMaxAtto`, `totalDebitMaxAtto` |
+| Each `artifacts.proof`, `.data`, `.factory` | `artifactPath`, `evidencePath`, `evidenceSha256`, `artifactSha256`, `executableSha256`, `codeHash`, `sourceClosureSha256` |
+| `simulation` | `deploymentVectorPath`, `deploymentVectorSha256`, `fundingIsSimulated=true`, `vectorIsIndependentSourceDerived=true` |
+
+The independently pinned vector JSON requires `schema=1`, `actor_reference`, `actor_group=0`, `deployment_vector`, `provenance` and `signing_or_proof=false`; `deployment_vector` contains `tx_id`, `output_index` and `expected_contract_id`. Its expectation must be independently computed from the source-derived normal-deployment recipe; it is not labelled an upstream golden transaction. The CLI receives L1 genesis separately. Hashes use exact lowercase 32-byte hex, the compressed key is 33 bytes, the genesis head is 80 bytes, and amounts are bounded canonical decimal strings. Policy JSON is at most 64 KiB; the checkpoint is at most 3,000 bytes. Paths must identify explicit existing local regular files with no symlink/reparse ancestry. Preserved evidence is pinned and raw ABI/field counts are reconciled without overwriting it.
+
+The two compiled templates are not the full live operation inventory: **30 independently reviewed scripts** are required for three deployments, initialization and 13 operations for each of two actual batches. Actual funded unsigned deployments, the deployed network/factory domain, two new matching proofs/receipts, available authenticated DA and independent reconstruction remain missing. Do not edit or relabel the existing P4 journal, promote mocked funding or advance P6 to bypass P5 acceptance.
 
 ## Fixed phase checklist
 
@@ -189,7 +237,7 @@ This is a manual external-input interface, not an automatic CI or live-operation
 | [x] | P4.2 Real proof | Current guest/program/prover and real Groth16 receipt match independent native execution under the declared development profile. |
 | [x] | P4.3 Staged acceptance | Independent pairing and same-receipt canonical synthetic positive/negative target bundle passed within target bounds. |
 | [ ] | P5.1 Settlement and data | Local journal/policy/Ralph source checkpoint qualified; matching-domain positive VM, consecutive canonical batches, public data/reconstruction and eligibility/retention acceptance remain pending. |
-| [ ] | P5.2 Publisher lifecycle | Source implements durable attempts/fencing/recovery; first 36-case and revised 47-case real-Store bundles, independent review and warnings-denied lint passed. Live adapters and public lifecycle acceptance remain unestablished. |
+| [ ] | P5.2 Publisher lifecycle | Durable attempts/fencing/recovery plus schema-2 funding-model records and private file handoff are locally qualified; the latest real-Store aggregate passed 71 cases. Actual external signer/submitter operation and public lifecycle acceptance remain unestablished. |
 | [ ] | P5.3 Public-testnet integration | Two consecutive real settled batches, stale-parent/replay rejection, independent reconstruction and bounded recovery evidence. |
 | [ ] | P6.1 Custody/deposits | Authenticated confirmed domain-bound one-asset inbox, exact backing/reorg handling, credit once and matching runtime/guest messages. |
 | [ ] | P6.2 Withdrawals/recovery | Eligible-root atomic nullifiers and permissionless continuation/exits for account and supported contract-held rights with forced-input enforcement. |

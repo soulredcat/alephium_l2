@@ -135,6 +135,7 @@ impl<R: Repository> Publisher<R> {
         let intent = Intent {
             id: unsigned.intent_id(),
             operation_id: unsigned.operation_id(),
+            operation_policy_sha256: super::handoff::operation_policy_hash(unsigned.operation()),
             parent: plan.parent,
             tx_id: unsigned.tx_id(),
             unsigned: unsigned.unsigned_bytes().to_vec(),
@@ -269,6 +270,8 @@ impl<R: Repository> Publisher<R> {
         let record = row(snapshot, unsigned.intent_id())?;
         let spec = unsigned.operation().spec();
         if record.intent.operation_id != unsigned.operation_id()
+            || record.intent.operation_policy_sha256
+                != super::handoff::operation_policy_hash(unsigned.operation())
             || record.intent.tx_id != unsigned.tx_id()
             || record.intent.unsigned != unsigned.unsigned_bytes()
             || record.intent.artifact_hash != spec.source_artifact_sha256

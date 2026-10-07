@@ -40,6 +40,7 @@ pub struct ReservedInput {
 pub struct Intent {
     pub id: B256,
     pub operation_id: B256,
+    pub operation_policy_sha256: B256,
     pub parent: Option<B256>,
     pub tx_id: B256,
     pub unsigned: Vec<u8>,
@@ -137,7 +138,7 @@ pub struct PublisherSnapshot {
 impl PublisherSnapshot {
     pub fn empty(scope: Scope) -> Self {
         Self {
-            schema: 1,
+            schema: 2,
             scope,
             revision: 0,
             fencing_epoch: 0,

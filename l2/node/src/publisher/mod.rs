@@ -1,6 +1,7 @@
 //! Explicit durable publication lifecycle; no live signer, wallet or network client.
 pub(crate) mod codec;
 mod dispatch;
+pub mod handoff;
 mod history;
 mod observation;
 mod reconciliation;

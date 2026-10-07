@@ -31,6 +31,8 @@ mod staged_cases;
 mod staged_service;
 mod staged_sources;
 mod staged_state;
+mod testnet_plan;
+mod testnet_plan_cli;
 mod tower_cases;
 mod transport;
 mod verification_key;
@@ -57,6 +59,28 @@ fn run() -> Result<(), String> {
     }
     if args.iter().any(|flag| flag == "--no-run-time-limit") {
         return Err("--no-run-time-limit must occur once as the first option".into());
+    }
+    if let [mode, jar, evidence, public_key, genesis, policy] = args.as_slice()
+        && mode == "--testnet-plan-draft"
+    {
+        if !no_run_time_limit {
+            return Err("Offline draft requires explicit --no-run-time-limit".into());
+        }
+        let public_key = public_key
+            .to_str()
+            .ok_or("Offline public key must be UTF-8")?;
+        let genesis = genesis
+            .to_str()
+            .ok_or("Offline genesis pin must be UTF-8")?;
+        let report = testnet_plan_cli::run(
+            Path::new(jar),
+            Path::new(evidence),
+            public_key,
+            genesis,
+            Path::new(policy),
+        )?;
+        println!("{report}");
+        return Ok(());
     }
     let mut actual = None;
     let mut settlement_data = None;

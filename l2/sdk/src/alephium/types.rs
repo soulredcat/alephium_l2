@@ -1,6 +1,16 @@
 //! Narrow ALPH-only P2PKH policy and explicit external trust boundaries.
 use alloy_primitives::{B256, U256};
 
+/// Explicit source guarantee. Latest availability is never a historical
+/// snapshot; both paths retain the same exact monetary/ownership checks.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[repr(u8)]
+pub enum FundingModel {
+    ExactHeadSnapshotV1 = 1,
+    CanonicalFixedCurrentV1 = 2,
+}
+
 /// SDK supported-profile bounds, not protocol maximum/capacity claims.
 pub const MAX_UNSIGNED_BYTES: usize = 131_072;
 pub const MAX_SCRIPT_BYTES: usize = 65_536;
@@ -23,6 +33,7 @@ pub struct OutputRef {
 /// These are policy pins, not a cryptographic proof of consensus or spentness.
 #[derive(Clone, PartialEq, Eq)]
 pub struct FundingPin {
+    pub model: FundingModel,
     pub source_id: B256,
     pub network_id: u8,
     pub network_genesis_id: B256,
@@ -141,6 +152,7 @@ pub struct ValidatedUnsignedAlephium {
     pub(super) fee: U256,
     pub(super) input_amount: U256,
     pub(super) change: U256,
+    pub(super) fixed_output_count: u32,
 }
 
 impl ValidatedUnsignedAlephium {
@@ -173,6 +185,11 @@ impl ValidatedUnsignedAlephium {
     }
     pub fn change(&self) -> U256 {
         self.change
+    }
+    /// Exact count from the validated unsigned layout. Controlled contract
+    /// deployment outputs follow these fixed outputs; never assume index zero.
+    pub fn fixed_output_count(&self) -> u32 {
+        self.fixed_output_count
     }
 }
 
