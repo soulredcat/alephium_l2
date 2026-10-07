@@ -5,6 +5,7 @@ pub mod development;
 pub mod execution;
 pub mod operator;
 pub mod protocol;
+pub mod publisher;
 pub mod rpc;
 pub mod service;
 pub mod storage;

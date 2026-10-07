@@ -4,6 +4,16 @@ Rust EVM development node, SDK, transition proof components and Ralph verifier t
 
 [docs/HANDOFF.md](docs/HANDOFF.md) defines the accepted scope, reproduction prerequisites and remaining P5-P8 checklist. [handoff/status.json](handoff/status.json) contains curated results. This repository distributes source and public reference fixtures; current private databases, signed witnesses, receipts, proof binaries, local identities, tool installations and raw execution evidence are excluded. Source publication does not deploy or settle a chain.
 
+## P5.2 publisher and detached-signing source checkpoint
+
+The source adds a narrow Alephium v4.7.0/post-Rhone **ALPH-only full-P2PKH detached-signing profile** in [the SDK](l2/sdk/src/alephium/mod.rs), plus a [durable publisher](l2/node/src/publisher/mod.rs) backed by the existing Store. It checks canonical unsigned bytes, exact approved script/context, input ownership/funding observations, fee/deposit/change limits and compact low-S signatures over the native transaction ID. This is not a general wallet or arbitrary Alephium transaction implementation.
+
+Publisher intents, signing/submission attempt markers and responses are durably recorded; revisions/fencing reject stale owners, recovery does not automatically repeat a callback, and reorg reconciliation invalidates affected descendants. Canonical funding and receipt/effect observations come from explicitly configured **trusted consensus sources**, not a cryptographic light-client proof. Default external signer/submitter implementations are disabled; no live wallet, key custody, broadcast or settlement client is shipped.
+
+The first aggregate real-Store bundle passed **36 local logical cases**, including before/after durable-return gaps and reopen/recovery. It used development detached signatures and simulated canonical observations, not live L1 signing/submission or public settlement. These are repository-return fault checks around actual `SyncAll`, not physical power-loss qualification. The revised aggregate passed **47 local logical cases**, including refreshed-head recovery and late canonical inclusion after abandonment. Independent source/recovery review and all-target node/SDK Clippy with warnings denied passed; owned-process cleanup was verified. Original outcomes remain preserved.
+
+The existing generic wallet DTO still refuses opaque L1 signed responses; the new typed `sdk::alephium` profile is a separate explicit validation path. MetaMask-compatible EVM semantics and the future external wallet scaffold remain intact. Full P5 matched-domain/public two-batch acceptance remains pending.
+
 ## P5.1 source checkpoint
 
 The published source adds strict schema-four settlement journal decoding, independently pinned domain/profile/accepted-parent policy, contiguous ancestry checks and L1-relative timestamp validation. Native core/host aggregate checks passed. New Ralph settlement/data sources compose the unchanged staged proof child with a persistent accepted head/root, hash-keyed candidate children and immutable inline reconstruction data. Registration does not reserve or advance the head; finalization rechecks proof/data/identity/parent predicates before updating it. The guest and staged arithmetic child are unchanged.
@@ -12,7 +22,7 @@ The latest target bundle passed **21 local checks and compiled three contracts, 
 
 This checkpoint supports **at most 3,000 inline DA bytes**, with combined contract fields required to stay **strictly below 3,072 bytes**. It is a partial transport/session implementation: no chunked large-data transport, pruning/refund/bridge activation or proven public consecutive-batch flow is claimed. P5.1-P5.3 remain unchecked. Positive qualification requires proofs bound to the intended actual network and factory; public P5 acceptance still requires **two consecutive real public-testnet batches** and independent retrieval/reconstruction. The old P4 journal cannot be edited or relabelled to supply that domain.
 
-[Settlement interfaces and CLI templates](docs/HANDOFF.md#p51-source-checkpoint-and-settlement-cli) describe the current boundary. Publisher lifecycle implementation and public integration remain subsequent owning work; no P5.2 completion is implied.
+[Settlement interfaces and CLI templates](docs/HANDOFF.md#p51-source-checkpoint-and-settlement-cli) describe the current boundary. Publisher qualification, live adapter integration and public acceptance remain subsequent owning work; no P5.2 completion is implied.
 
 ## Accepted P4 scope
 
@@ -94,4 +104,4 @@ See [adapter types](l2/sdk/src/wallet/types.rs), [request/response validation](l
 
 The shipped template returns `Unsupported` and does not hold keys, sign, connect a wallet or broadcast. EVM signed responses are checked for canonical encoding, chain ID, signer and the exact intended Legacy/EIP-1559 transaction, including nonce, gas, recipient, value, calldata, fee fields and ordered access list. Ethereum signatures bind transaction fields and chain ID, not genesis or adapter request IDs; genesis remains a separately trusted caller/RPC pin. Adapter intent/payload Keccak domains are distinct from Alephium transaction IDs and settlement SHA-256 commitments.
 
-L1 signed responses remain `UnsupportedL1Validation` until canonical transaction/signature, authority and complete spending-limit validation are implemented. Echoing opaque bytes or hashes is not proof of spending correctness. The aggregate SDK validation and both examples compiled and passed locally; this is scaffold/interface evidence, not actual wallet integration or public settlement acceptance. P5 implementation remains in progress.
+The generic wallet DTO's L1 signed responses remain `UnsupportedL1Validation`; echoed opaque bytes/hashes are not spending correctness. The separate `sdk::alephium` API now validates only its explicitly approved v4.7.0 ALPH/P2PKH detached profile, with trusted funding/approval adapters. The external wallet template still returns `Unsupported`, performs no signing/broadcast and has no connected-wallet claim. EVM adapter validation and examples retain their recorded local qualification; P5 public settlement remains pending.

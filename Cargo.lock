@@ -52,8 +52,10 @@ dependencies = [
  "alloy-consensus",
  "alloy-eips",
  "alloy-primitives",
+ "blake2",
  "hex",
  "reqwest",
+ "secp256k1 0.31.1",
  "serde",
  "serde_json",
 ]

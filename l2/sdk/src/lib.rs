@@ -1,5 +1,6 @@
 //! Versioned development-only client. No signing keys or settlement authority.
 #![forbid(unsafe_code)]
+pub mod alephium;
 mod client;
 mod receipt;
 mod transaction;

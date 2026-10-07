@@ -143,6 +143,44 @@ The last pin comes from the receipt's independently reviewed **original input pa
 
 A positive synthetic flow needs a receipt for its actual matching factory/network. Completing public P5 requires the approved real public-testnet deployment/domain and **two new correctly scoped consecutive proofs**, reusable-session acceptance, stale-parent/replay rejection, available public data and independent matching reconstruction. Real deployment/funding/signing authority and publisher ambiguity/reorg handling are separate requirements. Reuse accepted P4/source evidence; do not mutate an old journal or synthesize proof success.
 
+## P5.2 publisher and narrow L1 codec
+
+**Local verification checkpoint:** the first real-Store aggregate publisher bundle passed **36 logical cases**. SDK aggregate checks also passed. The revised aggregate passed **47 logical cases** after fixing late canonical receipt reconciliation following abandonment and adding refreshed-head signature/submission coverage. Independent source/recovery review and all-target node/SDK Clippy with warnings denied passed, with complete owned-process cleanup. Public signing/deployment/submission, matching-domain positive settlement and P5 acceptance remain unestablished.
+
+The separate [SDK Alephium API](../l2/sdk/src/alephium/mod.rs) supports the named `alephium-v4.7.0/p2pkh-alph/post-rhone/v1` profile, not arbitrary wallet-produced bytes. It uses ordinary unsigned version-0 encoding, the standard four-group context and ALPH-only full P2PKH unlocks. Every input uses the approved compressed public key; duplicate references, nonminimal compact integers, extra bytes, alternate unlock/key forms, token/additional-data outputs and unsupported scripts are rejected.
+
+[Validation](../l2/sdk/src/alephium/validation.rs) requires exact separately approved StatefulScript bytes (or an explicitly approved script-free/zero-deposit operation), fixed network/group/head funding context and matching previous outputs. Fee, declared contract deposit, total debit and optional same-owner change must agree exactly within approved bounds. StatefulScript effects remain the trusted local approval/compiler adapter's responsibility; echoed hashes or builder metadata cannot grant spending permission. The publisher path requires a nonempty approved script.
+
+Transaction ID uses protocol Blake2b-256 with a 256-bit output parameter. Detached signatures are exactly 64-byte low-S `r||s` over that ID as the ECDSA prehash: no Ethereum prefix, recovery byte or extra hash. A signature binds unsigned bytes; local intent, genesis, artifact and approval metadata still require independent caller/context validation.
+
+`LocalScriptApproval` and `CanonicalFundingSource` are deliberately explicit trust interfaces. The latter must resolve unspent outputs at the pinned network/group/head and reject unavailable, spent, stale or reorged context. SDK consistency/signature checks do not prove L1 consensus or UTXO authenticity. No key custody, signer, reservation or RPC/broadcast client is built into this pure validation API.
+
+[Publisher orchestration](../l2/node/src/publisher/service.rs) uses valid revision/fence/head-bound memory, then repositories on misses/conflicts. [Store persistence](../l2/node/src/storage/publisher.rs) commits snapshot/audit changes with `SyncAll`; recovery validates the durable transition history. [Dispatch](../l2/node/src/publisher/dispatch.rs) persists intent and at-most-one attempt marker before each external callback, validates returned detached signatures against the retained unsigned operation, and records response/ambiguity. An acknowledgement hash is not inclusion or finality.
+
+[Canonical observations](../l2/node/src/publisher/observation.rs) require an independently configured consensus-validating source with stable head snapshots and actual script/effect extraction. Identity, ancestry, receipt block, expected effect and confirmation counts are checked. This configurable trusted-node boundary is not an installed production client, wallet receipt or cryptographic light-client verifier.
+
+[Reconciliation](../l2/node/src/publisher/reconciliation.rs) handles stale fences, signer/submission ambiguity, confirmations and reorg/descendant invalidation. Restart does not clear attempted operations or automatically re-sign/rebroadcast. Explicit reviewed abandonment retains/quarantines reservations once signing may have occurred; a not-found response cannot prove a transaction will never land.
+
+`ExternalSigner::enabled()` and `ExternalSubmitter::enabled()` default to false; `DisabledExternal` rejects operations. A real integration must separately supply approved detached signer, funding/canonical source and single-submission adapters. The existing generic wallet `SignedAlephium` response path remains `UnsupportedL1Validation`; it must not be silently replaced by an opaque signature echo. The narrow typed SDK profile does not claim that any wallet is currently connected or supports this interface.
+
+The ignored coherent publisher harness requires a new original-host project-drive output and independently compiled/pinned fixture bytes. The portable [fixture source](../l2/node/tests/fixtures/publisher_signing_fixture.ral) is a minimal network assertion; it does not call production P5 contracts. No compiled private script binary is distributed. Compile it into fresh caller-owned source/artifact directories with the separately pinned compiler, using its existing interface:
+
+```bash
+java -Dfile.encoding=UTF-8 -jar "$pinned_ralphc_jar" \
+  -c "$fresh_fixture_sources" -a "$fresh_fixture_artifacts" -w
+```
+
+Review the resulting StatefulScript bytes and record their SHA-256 independently. Then supply that external fixture and a fresh E-drive/checked-mount output:
+
+```powershell
+$env:L2_PUBLISHER_OUTPUT = '<new absolute owned project-drive output>'
+$env:L2_PUBLISHER_SCRIPT_FILE = '<reviewed local compiled fixture script>'
+$env:L2_PUBLISHER_SCRIPT_SHA256 = '<independently reviewed fixture artifact SHA-256>'
+cargo test -p alephium-l2-node --locked --test publisher -- --ignored
+```
+
+This is a manual external-input interface, not an automatic CI or live-operation command. Local source qualification covers durable-return failures before/after actual Store barriers, fencing, recovery, wrong signatures/effects, ambiguity, confirmations, reorg descendants and input quarantine. It does not cover physical power loss, malicious trusted-node consensus, a live wallet/network client or real public-testnet settlement. Default external clients remain disabled.
+
 ## Fixed phase checklist
 
 | Done | Task | Required output / current boundary |
@@ -151,7 +189,7 @@ A positive synthetic flow needs a receipt for its actual matching factory/networ
 | [x] | P4.2 Real proof | Current guest/program/prover and real Groth16 receipt match independent native execution under the declared development profile. |
 | [x] | P4.3 Staged acceptance | Independent pairing and same-receipt canonical synthetic positive/negative target bundle passed within target bounds. |
 | [ ] | P5.1 Settlement and data | Local journal/policy/Ralph source checkpoint qualified; matching-domain positive VM, consecutive canonical batches, public data/reconstruction and eligibility/retention acceptance remain pending. |
-| [ ] | P5.2 Publisher lifecycle | Durable intent before signing, single submission, ambiguity reconciliation, confirmation/reorg handling and bounded session abandonment/progress. |
+| [ ] | P5.2 Publisher lifecycle | Source implements durable attempts/fencing/recovery; first 36-case and revised 47-case real-Store bundles, independent review and warnings-denied lint passed. Live adapters and public lifecycle acceptance remain unestablished. |
 | [ ] | P5.3 Public-testnet integration | Two consecutive real settled batches, stale-parent/replay rejection, independent reconstruction and bounded recovery evidence. |
 | [ ] | P6.1 Custody/deposits | Authenticated confirmed domain-bound one-asset inbox, exact backing/reorg handling, credit once and matching runtime/guest messages. |
 | [ ] | P6.2 Withdrawals/recovery | Eligible-root atomic nullifiers and permissionless continuation/exits for account and supported contract-held rights with forced-input enforcement. |
@@ -173,4 +211,4 @@ See [adapter types](../l2/sdk/src/wallet/types.rs), [request/response validation
 
 The shipped template returns `Unsupported` and does not hold keys, sign, connect a wallet or broadcast. EVM signed responses are checked for canonical encoding, chain ID, signer and the exact intended Legacy/EIP-1559 transaction, including nonce, gas, recipient, value, calldata, fee fields and ordered access list. Ethereum signatures bind transaction fields and chain ID, not genesis or adapter request IDs; genesis remains a separately trusted caller/RPC pin. Adapter intent/payload Keccak domains are distinct from Alephium transaction IDs and settlement SHA-256 commitments.
 
-L1 signed responses remain `UnsupportedL1Validation` until canonical transaction/signature, authority and complete spending-limit validation are implemented. Echoing opaque bytes or hashes is not proof of spending correctness. The aggregate SDK validation and both examples compiled and passed locally; this is scaffold/interface evidence, not actual wallet integration or public settlement acceptance. P5 implementation remains in progress.
+The generic wallet DTO's L1 signed responses remain `UnsupportedL1Validation`; echoed opaque bytes/hashes are not spending correctness. The separate `sdk::alephium` API now validates only its explicitly approved v4.7.0 ALPH/P2PKH detached profile, with trusted funding/approval adapters. The external wallet template still returns `Unsupported`, performs no signing/broadcast and has no connected-wallet claim. EVM adapter validation and examples retain their recorded local qualification; P5 public settlement remains pending.

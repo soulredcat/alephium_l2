@@ -1,0 +1,4 @@
+// Local signing-boundary fixture; not a production settlement operation.
+TxScript P5SigningBoundaryFixture() {
+    assert!(networkId!() == #01, 1701)
+}
