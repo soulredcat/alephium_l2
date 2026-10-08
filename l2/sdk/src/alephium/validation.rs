@@ -10,6 +10,20 @@ pub fn alephium_hash(bytes: &[u8]) -> B256 {
     B256::from_slice(&Blake2b::<U32>::digest(bytes))
 }
 
+/// Pure public identity validation; no key custody, signing or network access.
+pub fn publisher_address_from_public_key(
+    bytes: &[u8],
+) -> Result<super::read_node::P2pkhAddress, AlephiumValidationError> {
+    let key =
+        PublicKey::from_slice(bytes).map_err(|_| AlephiumValidationError::UnsupportedProfile)?;
+    if bytes.len() != 33 || key.serialize().as_slice() != bytes {
+        return Err(AlephiumValidationError::UnsupportedProfile);
+    }
+    Ok(super::read_node::P2pkhAddress::from_hash(alephium_hash(
+        bytes,
+    )))
+}
+
 pub fn approve_operation(
     spec: OperationSpec,
     source: &impl LocalScriptApproval,

@@ -56,7 +56,8 @@ pub struct IdentityObservation {
     pub chain_0_0_genesis: GenesisPin,
 }
 
-/// Source-reported header, not an independently verified consensus header.
+/// Source-reported target-group-zero header, not independently verified
+/// consensus. Creator provenance supplies its source chain separately.
 #[derive(Clone, PartialEq, Eq)]
 pub struct ChainHeader {
     pub hash: B256,
@@ -142,6 +143,27 @@ impl TransactionDetailsObservation {
     }
     pub fn into_observation(self) -> TransactionObservation {
         self.observation
+    }
+}
+
+/// Funding creator discovery can identify any 0..3 -> 0 chain. Coordinates
+/// remain absent for unconfirmed/conflicted discovery outcomes; no 0_0 default
+/// is inferred. The configured 0_0 genesis identifies the selected network,
+/// not an independently verified genesis or history for the creator chain.
+pub struct Owner0CreatorDetails {
+    pub(super) chain_from: Option<u8>,
+    pub(super) transaction: TransactionDetailsObservation,
+}
+
+impl Owner0CreatorDetails {
+    pub fn chain_from(&self) -> Option<u8> {
+        self.chain_from
+    }
+    pub fn chain_to(&self) -> Option<u8> {
+        self.chain_from.map(|_| 0)
+    }
+    pub fn transaction(&self) -> &TransactionDetailsObservation {
+        &self.transaction
     }
 }
 

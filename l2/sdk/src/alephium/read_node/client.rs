@@ -67,6 +67,19 @@ impl ReadNode {
             .map(TransactionDetailsObservation::into_observation)
     }
 
+    /// Discover one funding creator across chains 0..3 -> 0. Settlement reads
+    /// remain on 0 -> 0. Creator heights must not be compared across chains.
+    pub fn funding_creator_details(
+        &self,
+        tx_id: B256,
+    ) -> Result<Owner0CreatorDetails, ReadNodeError> {
+        if tx_id == B256::ZERO {
+            return Err(ReadNodeError::InvalidConfiguration);
+        }
+        let identity = self.guard()?;
+        super::creator_transactions::read(&self.transport, tx_id, identity)
+    }
+
     /// Retain exact matched details for additional strict decoding. Pending,
     /// missing and conflicted outcomes carry no details. This observes a node-
     /// reported inclusion, not a historical funding snapshot or PoW proof.
@@ -78,47 +91,18 @@ impl ReadNode {
             return Err(ReadNodeError::InvalidConfiguration);
         }
         let identity = self.guard()?;
-        let mut retained_details = None;
         let outcome = match self.status_inner(tx_id)? {
             TransactionStatus::TxNotFound => TransactionOutcome::TxNotFound,
             TransactionStatus::MemPooled => TransactionOutcome::MemPooled,
             TransactionStatus::Conflicted(value) => TransactionOutcome::Conflicted(value),
             TransactionStatus::Confirmed(first) => {
-                let details: serde_json::Value = self.transport.get(
-                    &format!("/transactions/details/{}", hex_hash(tx_id)),
-                    &chain_query(),
-                )?;
-                let block: blocks::Block = self.transport.get(
-                    &format!("/blockflow/blocks/{}", hex_hash(first.block_hash)),
-                    &[],
-                )?;
-                let height = wire::nonnegative(i64::from(block.header.height))?;
-                let header = block.header.checked(first.block_hash, height)?;
-                if self.canonical_header_inner(height)? != header {
-                    return Err(ReadNodeError::ObservationChanged);
-                }
-                let conflicted: Vec<_> = block
-                    .conflicted_txs
-                    .map_or_else(Vec::new, |list| list.0)
-                    .into_iter()
-                    .map(|hash| hash.0)
-                    .collect();
-                let succeeded = transactions::exact_transaction(
+                return transactions::confirmed_in_chain(
+                    &self.transport,
                     tx_id,
-                    first.transaction_index,
-                    &block.transactions.0,
-                    &details,
-                    &conflicted,
-                )?;
-                // Keep the latest three counters rather than using stale values
-                // or inventing a threshold from height distance.
-                let inclusion = transactions::same_inclusion(&first, self.status_inner(tx_id)?)?;
-                retained_details = Some(details);
-                if succeeded {
-                    TransactionOutcome::ScriptSucceeded { inclusion, header }
-                } else {
-                    TransactionOutcome::ScriptFailed { inclusion, header }
-                }
+                    identity,
+                    first,
+                    0,
+                );
             }
         };
         Ok(TransactionDetailsObservation {
@@ -127,7 +111,7 @@ impl ReadNode {
                 transaction_id: tx_id,
                 outcome,
             },
-            retained_details,
+            retained_details: None,
         })
     }
 
@@ -230,40 +214,11 @@ impl ReadNode {
         wire::nonnegative(i64::from(info.current_height))
     }
 
-    fn member(&self, hash: B256) -> Result<bool, ReadNodeError> {
-        self.transport.get(
-            "/blockflow/is-block-in-main-chain",
-            &[("blockHash", hex_hash(hash))],
-        )
-    }
-
     fn canonical_header_inner(&self, height: u64) -> Result<ChainHeader, ReadNodeError> {
-        if height > i32::MAX as u64 {
-            return Err(ReadNodeError::InvalidConfiguration);
-        }
-        let mut query = chain_query().to_vec();
-        query.push(("height", height.to_string()));
-        let candidates = blocks::candidates(self.transport.get("/blockflow/hashes", &query)?)?;
-        let memberships = candidates
-            .iter()
-            .map(|hash| self.member(*hash))
-            .collect::<Result<Vec<_>, _>>()?;
-        let selected = blocks::select_unique(&candidates, &memberships)?;
-        let header: blocks::Header = self
-            .transport
-            .get(&format!("/blockflow/headers/{}", hex_hash(selected)), &[])?;
-        let header = header.checked(selected, height)?;
-        if !self.member(selected)? {
-            return Err(ReadNodeError::ObservationChanged);
-        }
-        Ok(header)
+        blocks::read_canonical(&self.transport, height, 0)
     }
-
     fn status_inner(&self, tx_id: B256) -> Result<TransactionStatus, ReadNodeError> {
-        let mut query = chain_query().to_vec();
-        query.push(("txId", hex_hash(tx_id)));
-        let status: transactions::Status = self.transport.get("/transactions/status", &query)?;
-        status.checked()
+        transactions::read_status(&self.transport, tx_id, Some(0))
     }
 }
 

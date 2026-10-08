@@ -105,6 +105,7 @@ pub(crate) fn run_checks() -> usize {
 
     let independent = identity_fixture(&config(GenesisProvenance::Independent));
     let diagnostic = identity_fixture(&config(GenesisProvenance::DiagnosticObserved));
+    checks += creator_transactions::tests::run_checks(&diagnostic);
     check!(independent.chain_0_0_genesis.provenance == GenesisProvenance::Independent);
     check!(diagnostic.chain_0_0_genesis.provenance == GenesisProvenance::DiagnosticObserved);
     for version in ["v4.7.0", "v4.7.1", "4.7.1", "v4.7.10", "v4.7.1-unsafe"] {

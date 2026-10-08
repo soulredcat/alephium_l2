@@ -1,6 +1,6 @@
 {
   "schema": 2,
-  "updated": "2026-10-07",
+  "updated": "2026-10-08",
   "scope": "Published P4/wallet/P5 foundations plus locally qualified read/current-funding, publisher file handoff and offline draft preparation; actual public P5 acceptance pending",
   "p4_complete": true,
   "p4_acceptance_scope": "Fresh 10-transaction development proving fixture",
@@ -344,5 +344,24 @@
     "generic_wallet_SignedAlephium_validation": "UnsupportedL1Validation",
     "external_wallet_template_result": "Unsupported",
     "P6_started_or_accepted_by_this_checkpoint": false
+  },
+  "status": "P5.2.2-local-funding-source-v4-qualified-public-settlement-pending",
+  "p5_2_2_source_qualification": {
+    "status": "CLOSED local funding validation output",
+    "source_policy_version": 4,
+    "reader_checks": 196,
+    "funding_checks": 300,
+    "total_logical_checks": 496,
+    "actual_configured_testnet_funding_reads_accepted": true,
+    "effective_lock_from_authenticated_creator_and_canonical_header": true,
+    "native_projection_presence_and_exactness_required": true,
+    "maturity_checks_not_lowered": true,
+    "old_source_identity_rejected": true,
+    "canonical_head_advance_max_blocks": 32,
+    "observation_atomic_or_reservation": false,
+    "native_unsigned_codec_identity_reconciliation": true,
+    "private_execution_artifacts_included": false,
+    "live_signing_deployment_or_settlement": false,
+    "public_phase5_complete": false
   }
 }

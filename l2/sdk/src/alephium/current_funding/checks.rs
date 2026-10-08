@@ -2,7 +2,8 @@ use super::{CurrentFundingError as Error, CurrentFundingPolicy};
 use crate::alephium::{
     FundingModel, FundingPin, MAX_INPUTS, OutputRef, PreviousOutput,
     read_node::{
-        ChainHeader, ConfirmationCounts, GenesisProvenance, IdentityObservation, UnanchoredUtxo,
+        ChainHeader, ConfirmationCounts, GenesisProvenance, IdentityObservation, InclusionStatus,
+        TransactionOutcome, UnanchoredUtxo,
     },
 };
 use std::collections::BTreeSet;
@@ -75,7 +76,44 @@ pub(super) fn confirmations(
         || observed.from_group < minimum.from_group
         || observed.to_group < minimum.to_group
     {
-        return Err(Error::CreatorUnconfirmed);
+        return Err(Error::CreatorConfirmationsInsufficient {
+            observed_chain: observed.chain,
+            observed_from_group: observed.from_group,
+            observed_to_group: observed.to_group,
+            required_chain: minimum.chain,
+            required_from_group: minimum.from_group,
+            required_to_group: minimum.to_group,
+        });
+    }
+    Ok(())
+}
+
+/// Report only status metadata. Failed, conflicted, pending and missing creators
+/// remain ineligible regardless of any other returned transaction fields.
+pub(super) fn creator_execution(
+    outcome: &TransactionOutcome,
+) -> Result<(&InclusionStatus, &ChainHeader), Error> {
+    match outcome {
+        TransactionOutcome::ScriptSucceeded { inclusion, header } => Ok((inclusion, header)),
+        TransactionOutcome::ScriptFailed { .. } => Err(Error::CreatorScriptFailed),
+        TransactionOutcome::Conflicted(_) => Err(Error::CreatorConflicted),
+        TransactionOutcome::MemPooled => Err(Error::CreatorMemPooled),
+        TransactionOutcome::TxNotFound => Err(Error::CreatorTxNotFound),
+    }
+}
+
+pub(super) fn creator_inclusion(
+    chain_from: u8,
+    chain_to: u8,
+    inclusion: &InclusionStatus,
+    header: &ChainHeader,
+) -> Result<(), Error> {
+    if !super::policy::allows_creator_chain(chain_from, chain_to) {
+        return Err(Error::UnsupportedCreator);
+    }
+    // No owner0_0 height parameter: distinct chains' heights are incomparable.
+    if inclusion.block_hash != header.hash {
+        return Err(Error::CreatorMismatch);
     }
     Ok(())
 }
@@ -95,22 +133,83 @@ pub(super) fn fixed_output<'a>(
 pub(super) fn latest(
     fixed: &PreviousOutput,
     observed: &UnanchoredUtxo,
+    provenance: &super::FixedOutputProvenance,
     owner_hash: alloy_primitives::B256,
     timestamp_ms: u64,
-) -> Result<(), Error> {
+) -> Result<super::LockTimeProjection, Error> {
+    super::lock_time::evidence(fixed, provenance)?;
     if fixed.reference != observed.reference
         || fixed.amount != observed.amount
         || !fixed.tokens.is_empty()
         || !observed.tokens.is_empty()
         || !fixed.additional_data.is_empty()
         || observed.additional_data.as_deref() != Some(&[][..])
-        || observed.lock_time_ms != Some(fixed.lock_time_ms)
-        || fixed.lock_time_ms > timestamp_ms
         || fixed.locking_script.len() != 33
         || fixed.locking_script[0] != 0
         || &fixed.locking_script[1..] != owner_hash.as_slice()
     {
         return Err(Error::AvailabilityMismatch);
+    }
+    super::lock_time::projection(
+        provenance.committed_lock_time_ms,
+        fixed.lock_time_ms,
+        observed.lock_time_ms,
+        timestamp_ms,
+    )
+}
+
+/// Bound progress on the same owner 0_0 chain. Equal heights require the exact
+/// typed header; these checks do not authenticate source-reported header hashes.
+pub(super) fn head_advance(before: &ChainHeader, after: &ChainHeader) -> Result<u32, Error> {
+    let advance = after
+        .height
+        .checked_sub(before.height)
+        .ok_or(Error::HeadChanged)?;
+    if before.hash == alloy_primitives::B256::ZERO
+        || after.hash == alloy_primitives::B256::ZERO
+        || after.timestamp_ms < before.timestamp_ms
+        || advance == 0 && before != after
+    {
+        return Err(Error::HeadChanged);
+    }
+    if advance > u64::from(super::MAX_OWNER_HEAD_ADVANCE) {
+        return Err(Error::HeadProgressTooLarge {
+            observed: advance,
+            maximum: super::MAX_OWNER_HEAD_ADVANCE,
+        });
+    }
+    Ok(advance as u32)
+}
+
+/// Validate the bounded inclusive before-to-after lineage. The other six DAG
+/// dependencies may change between heights; only this chain's parent is linked.
+pub(super) fn head_lineage(
+    before: &ChainHeader,
+    after: &ChainHeader,
+    lineage: &[ChainHeader],
+) -> Result<(), Error> {
+    let advance = head_advance(before, after)?;
+    if lineage.len() != advance as usize + 1
+        || lineage.first() != Some(before)
+        || lineage.last() != Some(after)
+    {
+        return Err(Error::HeadChanged);
+    }
+    let mut seen = BTreeSet::new();
+    for header in lineage {
+        if header.hash == alloy_primitives::B256::ZERO || !seen.insert(header.hash) {
+            return Err(Error::HeadChanged);
+        }
+    }
+    for pair in lineage.windows(2) {
+        let previous = &pair[0];
+        let next = &pair[1];
+        if previous.height.checked_add(1) != Some(next.height)
+            || next.parent() != Some(previous.hash)
+            || next.timestamp_ms < previous.timestamp_ms
+        {
+            return Err(Error::HeadChanged);
+        }
     }
     Ok(())
 }

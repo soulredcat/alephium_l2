@@ -1,9 +1,22 @@
 //! Distinct current-availability evidence; never an exact-head UTXO snapshot.
 use crate::alephium::{
     FundingObservation, FundingPin, OutputRef, PreviousOutput,
-    read_node::{ConfirmationCounts, HeaderObservation, InclusionStatus, ReadNodeError},
+    read_node::{
+        ChainHeader, ConfirmationCounts, HeaderObservation, InclusionStatus, ReadNodeError,
+    },
 };
 use alloy_primitives::B256;
+
+pub const MAX_OWNER_HEAD_ADVANCE: u32 = 32;
+
+/// Which exact native value the latest projection returned. This does not
+/// identify its cache/storage origin; Coincident means both values are equal.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LockTimeProjection {
+    Committed,
+    Effective,
+    Coincident,
+}
 
 /// These thresholds are independently selected local policy, not values echoed
 /// by a transaction builder. Every confirmation threshold must be nonzero.
@@ -32,18 +45,29 @@ impl CreatorScriptRegistry for ScriptFreeCreators {
     }
 }
 
-/// The fixed-output contents are authenticated by the creator unsigned hash.
-/// Inclusion and availability still trust the configured consensus node.
+/// The committed fixed-output body is bound by the creator unsigned hash.
+/// Effective maturity also uses its correlated canonical creator timestamp.
+/// Inclusion, that timestamp and availability trust the configured node.
+#[derive(Clone)]
 pub struct FixedOutputProvenance {
     pub reference: OutputRef,
     pub creator_transaction_id: B256,
+    pub creator_chain_from: u8,
+    pub creator_chain_to: u8,
     pub fixed_output_index: u32,
     pub inclusion: InclusionStatus,
     pub creator_block_height: u64,
+    pub committed_lock_time_ms: u64,
+    pub creator_block_timestamp_ms: u64,
+    pub effective_lock_time_ms: u64,
+    pub initial_lock_time_projection: Option<LockTimeProjection>,
+    pub final_lock_time_projection: Option<LockTimeProjection>,
 }
 
-/// Only the observer constructs this capability. Latest mempool-aware presence
-/// plus matching bracketing heads is NOT an atomic or historical UTXO proof.
+/// Only the observer constructs this capability. Creator/availability checks
+/// are windowed trusted observations, not atomic UTXO state at the AFTER pin.
+/// The current-window path repeats them after lineage validation, then rechecks
+/// AFTER canonicality; signing/reservation and later races remain separate.
 /// It deliberately has no Debug/Serialize or public unchecked constructor.
 pub struct CurrentFixedFundingObservation {
     pub(super) funding: FundingObservation,
@@ -51,12 +75,16 @@ pub struct CurrentFixedFundingObservation {
     pub(super) provenance: Vec<FixedOutputProvenance>,
     pub(super) before: HeaderObservation,
     pub(super) after: HeaderObservation,
+    pub(super) current_window: bool,
+    pub(super) head_lineage: Vec<ChainHeader>,
 }
 
 impl CurrentFixedFundingObservation {
     pub fn pin(&self) -> &FundingPin {
         self.funding.pin()
     }
+    /// Lock times are native effective maturity values. The signed creator's
+    /// original lock times remain separately available in provenance().
     pub fn outputs(&self) -> &[PreviousOutput] {
         self.funding.outputs()
     }
@@ -72,6 +100,36 @@ impl CurrentFixedFundingObservation {
     pub fn head_after(&self) -> &HeaderObservation {
         &self.after
     }
+    pub fn is_current_window(&self) -> bool {
+        self.current_window
+    }
+    /// Inclusive BEFORE..AFTER canonical-header observations in current mode;
+    /// empty for the strict caller-pinned path.
+    pub fn head_lineage(&self) -> &[ChainHeader] {
+        &self.head_lineage
+    }
+    pub fn head_advance(&self) -> u32 {
+        self.head_lineage.len().saturating_sub(1) as u32
+    }
+    pub(super) fn validate_lock_evidence(&self) -> Result<(), CurrentFundingError> {
+        if self.outputs().len() != self.provenance.len() {
+            return Err(CurrentFundingError::CreatorMismatch);
+        }
+        for (output, fact) in self.outputs().iter().zip(&self.provenance) {
+            super::lock_time::evidence(output, fact)?;
+        }
+        Ok(())
+    }
+    pub(super) fn validate_head_evidence(&self) -> Result<(), CurrentFundingError> {
+        super::checks::head(self.funding.pin(), &self.after.header)?;
+        if self.current_window {
+            super::checks::head_lineage(&self.before.header, &self.after.header, &self.head_lineage)
+        } else if self.before.header != self.after.header || !self.head_lineage.is_empty() {
+            Err(CurrentFundingError::HeadChanged)
+        } else {
+            Ok(())
+        }
+    }
 }
 
 /// Metadata-only failures; payloads, signatures and RPC bodies are suppressed.
@@ -79,15 +137,34 @@ impl CurrentFixedFundingObservation {
 pub enum CurrentFundingError {
     Bounds,
     InvalidPolicy,
+    InvalidPublisher,
     WrongFundingModel,
     IdentityMismatch,
     HeadChanged,
-    CreatorUnconfirmed,
+    HeadProgressTooLarge {
+        observed: u64,
+        maximum: u32,
+    },
+    CreatorTxNotFound,
+    CreatorMemPooled,
+    CreatorConflicted,
+    CreatorScriptFailed,
+    CreatorConfirmationsInsufficient {
+        observed_chain: u32,
+        observed_from_group: u32,
+        observed_to_group: u32,
+        required_chain: u32,
+        required_from_group: u32,
+        required_to_group: u32,
+    },
     CreatorMismatch,
     MalformedCreator,
     UnsupportedCreator,
     NotFixedOutput,
     AvailabilityMismatch,
+    AvailabilityLockTimeMissing,
+    AvailabilityLockTimeMismatch,
+    AvailabilityImmature,
     Read(ReadNodeError),
 }
 

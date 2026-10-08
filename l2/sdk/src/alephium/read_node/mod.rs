@@ -1,10 +1,11 @@
-//! GET-only trusted-node observations for public testnet chain 0 -> 0.
+//! GET-only testnet settlement reads on 0 -> 0, and owner-zero funding creators.
 //! No light-client/PoW proof, signing, submission, historical contract effects,
 //! or canonical funding snapshot is implemented by this module.
 mod address;
 mod blocks;
 mod client;
 mod contract;
+mod creator_transactions;
 mod identity;
 mod transactions;
 mod transport;

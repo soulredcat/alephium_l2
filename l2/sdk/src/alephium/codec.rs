@@ -121,7 +121,10 @@ pub(super) fn decode(
     Ok(tx)
 }
 
-fn encode(tx: &Unsigned, approved: &ApprovedOperation) -> Result<Vec<u8>, AlephiumValidationError> {
+pub(super) fn encode(
+    tx: &Unsigned,
+    approved: &ApprovedOperation,
+) -> Result<Vec<u8>, AlephiumValidationError> {
     let mut out = vec![0, tx.network_id];
     if let Some(script) = &approved.script {
         out.push(1);

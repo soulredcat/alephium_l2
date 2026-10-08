@@ -15,8 +15,8 @@ mod qualification_tests;
 
 pub use types::*;
 pub use validation::{
-    alephium_hash, approve_operation, observe_funding, unsigned_input_refs,
-    validate_detached_signature, validate_unsigned,
+    alephium_hash, approve_operation, observe_funding, publisher_address_from_public_key,
+    unsigned_input_refs, validate_detached_signature, validate_unsigned,
 };
 
 #[cfg(test)]

@@ -101,6 +101,7 @@ fn encode_inputs(value: &Value, encoded: &mut wire::Writer) -> Result<(), Error>
     }
     encoded.int(inputs.len() as u32)?;
     let mut seen = BTreeSet::new();
+    let mut previous_hint = None;
     for input in inputs {
         let input = wire::object(input, &["outputRef", "unlockScript"], &[])?;
         let reference = wire::object(wire::field(input, "outputRef")?, &["hint", "key"], &[])?;
@@ -110,15 +111,26 @@ fn encode_inputs(value: &Value, encoded: &mut wire::Writer) -> Result<(), Error>
             return Err(Error::MalformedCreator);
         }
         let unlock = wire::hex_bytes(wire::field(input, "unlockScript")?, 34)?;
-        if unlock.len() != 34 || unlock[0] != 0 {
-            return Err(Error::UnsupportedCreator);
-        }
-        let public_key =
-            PublicKey::from_slice(&unlock[1..]).map_err(|_| Error::UnsupportedCreator)?;
-        if public_key.serialize().as_slice() != &unlock[1..]
-            || hint != codec::owner_hint(alephium_hash(&unlock[1..]))
-        {
-            return Err(Error::CreatorMismatch);
+        match unlock.as_slice() {
+            [0, public_key @ ..] if public_key.len() == 33 => {
+                let parsed =
+                    PublicKey::from_slice(public_key).map_err(|_| Error::UnsupportedCreator)?;
+                if parsed.serialize().as_slice() != public_key
+                    || hint != codec::owner_hint(alephium_hash(public_key))
+                {
+                    return Err(Error::CreatorMismatch);
+                }
+                previous_hint = Some(hint);
+            }
+            [3] => {
+                // A chain of SameAsPrevious must originate at a validated full
+                // P2PKH unlock and retain its owner hint. Preserve the one byte.
+                let expected = previous_hint.ok_or(Error::UnsupportedCreator)?;
+                if hint != expected {
+                    return Err(Error::CreatorMismatch);
+                }
+            }
+            _ => return Err(Error::UnsupportedCreator),
         }
         encoded.bytes(&hint.to_be_bytes())?;
         encoded.bytes(key.as_slice())?;

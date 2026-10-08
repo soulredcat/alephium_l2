@@ -1,7 +1,7 @@
 //! Simulated funding facts only; no signer, RPC, consensus or VM is exercised.
 use super::super::*;
 use crate::alephium::{
-    FundingPin, LocalScriptApproval, OperationSpec, SpendLimits, codec, compact,
+    FundingPin, LocalScriptApproval, OperationSpec, SpendLimits, alephium_hash, codec, compact,
     read_node::{
         ConfirmationCounts, GenesisPin, GenesisProvenance, HeaderObservation, IdentityObservation,
         NodeVersion, OFFICIAL_TESTNET_ORIGIN, UnanchoredUtxo,
@@ -32,7 +32,7 @@ pub(super) struct Fixture {
     pub spend: Vec<u8>,
 }
 
-fn public_point() -> [u8; 33] {
+pub(super) fn public_point_for_group(group: u8) -> [u8; 33] {
     // The public secp256k1 generator, then bounded public-point additions.
     // No private scalar, key custody or signing operation is used.
     let generator = PublicKey::from_slice(
@@ -42,12 +42,12 @@ fn public_point() -> [u8; 33] {
     let mut point = generator;
     for _ in 0..64 {
         let encoded = point.serialize();
-        if codec::owner_group(alephium_hash(&encoded), 4).unwrap() == 0 {
+        if codec::owner_group(alephium_hash(&encoded), 4).unwrap() == group {
             return encoded;
         }
         point = point.combine(&generator).unwrap();
     }
-    panic!("Bounded public group-zero fixture point unavailable")
+    panic!("Bounded public fixture point unavailable")
 }
 
 pub(super) fn reference(tx_id: B256, index: u32, hint: u32) -> OutputRef {
@@ -60,16 +60,18 @@ pub(super) fn reference(tx_id: B256, index: u32, hint: u32) -> OutputRef {
 }
 
 pub(super) fn build(script: Option<&[u8]>) -> Fixture {
-    let key = public_point();
+    build_with_unlocks(script, &[0])
+}
+
+pub(super) fn build_with_unlocks(script: Option<&[u8]>, tags: &[u8]) -> Fixture {
+    assert!(
+        !tags.is_empty() && tags.len() < 32,
+        "Invalid synthetic input count"
+    );
+    let key = public_point_for_group(0);
     let owner = alephium_hash(&key);
     let hint = codec::owner_hint(owner);
     let address = P2pkhAddress::from_hash(owner);
-    let input_ref = OutputRef {
-        hint,
-        key: B256::repeat_byte(9),
-    };
-    let input = json!({"outputRef":{"hint":hint as i32,"key":hex::encode(input_ref.key)},
-        "unlockScript":hex::encode([vec![0],key.to_vec()].concat())});
     let amount = U256::from(2_000_000_000_000_000_000u64);
     let mut raw = vec![0, 1];
     if let Some(script) = script {
@@ -79,12 +81,24 @@ pub(super) fn build(script: Option<&[u8]>) -> Fixture {
         raw.push(0);
     }
     // Independently written from the pinned compact source, not creator::encode:
-    // gas100000, price1e11, inputcount1.
-    raw.extend_from_slice(&hex::decode("800186a0c1174876e80001").unwrap());
-    raw.extend_from_slice(&hint.to_be_bytes());
-    raw.extend_from_slice(input_ref.key.as_slice());
-    raw.push(0);
-    raw.extend_from_slice(&key);
+    // gas100000 and price1e11. Positive counts below32 use one signed-Int byte.
+    raw.extend_from_slice(&hex::decode("800186a0c1174876e800").unwrap());
+    raw.push(tags.len() as u8);
+    let mut inputs = Vec::with_capacity(tags.len());
+    for (index, tag) in tags.iter().enumerate() {
+        let input_key = B256::repeat_byte(9 + index as u8);
+        let mut unlock = vec![*tag];
+        if *tag == 0 {
+            unlock.extend_from_slice(&key);
+        }
+        inputs.push(
+            json!({"outputRef":{"hint":hint as i32,"key":hex::encode(input_key)},
+            "unlockScript":hex::encode(&unlock)}),
+        );
+        raw.extend_from_slice(&hint.to_be_bytes());
+        raw.extend_from_slice(input_key.as_slice());
+        raw.extend_from_slice(&unlock);
+    }
     raw.push(2);
     for _ in 0..2 {
         // U256 2 ALPH, then P2PKH tag, owner, LockTime8 and empty tokens/data.
@@ -111,7 +125,7 @@ pub(super) fn build(script: Option<&[u8]>) -> Fixture {
             "lockTime":0,"message":""}));
     }
     let mut unsigned = json!({"txId":hex::encode(id),"version":0,"networkId":1,
-        "gasAmount":100000,"gasPrice":"100000000000","inputs":[input],
+        "gasAmount":100000,"gasPrice":"100000000000","inputs":inputs,
         "fixedOutputs":json_outputs});
     if let Some(script) = script {
         unsigned["scriptOpt"] = json!(hex::encode(script));
@@ -188,7 +202,8 @@ pub(super) fn build(script: Option<&[u8]>) -> Fixture {
             dependencies: [B256::repeat_byte(8); 7],
         },
     };
-    let selected = fixed[1].clone();
+    let mut selected = fixed[1].clone();
+    selected.lock_time_ms = 6_000; // Native stamped value, not signed creator bytes.
     let observation = CurrentFixedFundingObservation {
         funding: FundingObservation {
             pin,
@@ -198,8 +213,15 @@ pub(super) fn build(script: Option<&[u8]>) -> Fixture {
         provenance: vec![FixedOutputProvenance {
             reference: selected.reference,
             creator_transaction_id: id,
+            creator_chain_from: 0,
+            creator_chain_to: 0,
             fixed_output_index: 1,
             creator_block_height: 5,
+            committed_lock_time_ms: 0,
+            creator_block_timestamp_ms: 6_000,
+            effective_lock_time_ms: 6_000,
+            initial_lock_time_projection: Some(LockTimeProjection::Committed),
+            final_lock_time_projection: None,
             inclusion: InclusionStatus {
                 block_hash: B256::repeat_byte(10),
                 transaction_index: 0,
@@ -208,6 +230,8 @@ pub(super) fn build(script: Option<&[u8]>) -> Fixture {
         }],
         before: header.clone(),
         after: header,
+        current_window: false,
+        head_lineage: vec![],
     };
     let latest = UnanchoredUtxo {
         reference: selected.reference,

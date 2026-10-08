@@ -1,11 +1,19 @@
 //! One parent-owned aggregate calls this helper. All chain/funding facts here
 //! are simulated; the script file is compile-qualified, never VM-qualified.
+mod context_checks;
+mod creator_profile;
+mod diagnostics;
 mod fixture;
+mod head_capability;
+mod head_progress;
+mod lock_binding;
+mod lock_time;
+mod materialize;
 mod policy_checks;
 
 use super::{checks, creator, *};
 use crate::alephium::{
-    FundingModel,
+    FundingModel, alephium_hash,
     read_node::{ConfirmationCounts, GenesisProvenance, TokenAmount, UnanchoredUtxo},
 };
 use alloy_primitives::{B256, U256};
@@ -39,7 +47,7 @@ fn approved_script() -> Vec<u8> {
 pub(crate) fn run_checks() -> usize {
     let script = approved_script();
     let f = fixture::build(None);
-    let mut count = 0;
+    let mut count = materialize::run_checks(&script);
     let mut check = |ok: bool| {
         assert!(
             ok,
@@ -192,7 +200,9 @@ pub(crate) fn run_checks() -> usize {
     identity.source_id = B256::repeat_byte(88);
     check(checks::identity(pin, &identity, f.observation.policy()).is_err());
     let owner = alephium_hash(&f.operation.spec().caller_public_key);
-    check(checks::latest(&f.fixed[1], &f.latest, owner, pin.timestamp_ms).is_ok());
+    let effective = &f.observation.outputs()[0];
+    let provenance = &f.observation.provenance()[0];
+    check(checks::latest(effective, &f.latest, provenance, owner, pin.timestamp_ms).is_ok());
     for mutation in 0..6 {
         let mut latest = UnanchoredUtxo {
             reference: f.latest.reference,
@@ -212,12 +222,13 @@ pub(crate) fn run_checks() -> usize {
                 amount: U256::from(1),
             }),
         }
-        check(checks::latest(&f.fixed[1], &latest, owner, pin.timestamp_ms).is_err());
+        check(checks::latest(effective, &latest, provenance, owner, pin.timestamp_ms).is_err());
     }
     check(
         checks::latest(
-            &f.fixed[1],
+            effective,
             &f.latest,
+            provenance,
             B256::repeat_byte(88),
             pin.timestamp_ms,
         )
@@ -242,5 +253,13 @@ pub(crate) fn run_checks() -> usize {
     let mut trailing = f.spend.clone();
     trailing.push(0);
     check(validate_current_unsigned(&f.operation, &f.observation, &trailing).is_err());
-    count + policy_checks::run_checks()
+    count
+        + policy_checks::run_checks()
+        + context_checks::run_checks()
+        + diagnostics::run_checks()
+        + creator_profile::run_checks()
+        + head_progress::run_checks()
+        + head_capability::run_checks()
+        + lock_time::run_checks()
+        + lock_binding::run_checks()
 }

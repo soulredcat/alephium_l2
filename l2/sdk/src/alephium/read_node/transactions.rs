@@ -1,4 +1,8 @@
-use super::{ConfirmationCounts, InclusionStatus, ReadNodeError as Error, TransactionStatus, wire};
+use super::{
+    ConfirmationCounts, IdentityObservation, InclusionStatus, ReadNodeError as Error,
+    TransactionDetailsObservation, TransactionObservation, TransactionOutcome, TransactionStatus,
+    blocks, transport::Transport, wire,
+};
 use alloy_primitives::B256;
 use serde::Deserialize;
 use serde_json::Value;
@@ -146,4 +150,81 @@ pub(super) fn same_inclusion(
         }
         _ => Err(Error::ObservationChanged),
     }
+}
+
+/// None is the single explicit discovery query, never a retry/fallback route.
+pub(super) fn status_query(
+    tx_id: B256,
+    from_group: Option<u8>,
+) -> Result<Vec<(&'static str, String)>, Error> {
+    if tx_id == B256::ZERO {
+        return Err(Error::InvalidConfiguration);
+    }
+    let mut query = match from_group {
+        Some(group) => blocks::owner0_query(group)?.to_vec(),
+        None => Vec::new(),
+    };
+    query.push(("txId", hex::encode(tx_id.as_slice())));
+    Ok(query)
+}
+
+pub(super) fn read_status(
+    transport: &Transport,
+    tx_id: B256,
+    from_group: Option<u8>,
+) -> Result<TransactionStatus, Error> {
+    let status: Status =
+        transport.get("/transactions/status", &status_query(tx_id, from_group)?)?;
+    status.checked()
+}
+
+pub(super) fn confirmed_in_chain(
+    transport: &Transport,
+    tx_id: B256,
+    identity: IdentityObservation,
+    first: InclusionStatus,
+    from_group: u8,
+) -> Result<TransactionDetailsObservation, Error> {
+    let details: Value = transport.get(
+        &format!("/transactions/details/{}", hex::encode(tx_id)),
+        &blocks::owner0_query(from_group)?,
+    )?;
+    let block: blocks::Block = transport.get(
+        &format!("/blockflow/blocks/{}", hex::encode(first.block_hash)),
+        &[],
+    )?;
+    let height = wire::nonnegative(i64::from(block.header.height))?;
+    let header = block
+        .header
+        .checked_owner0(first.block_hash, height, from_group)?;
+    if blocks::read_canonical(transport, height, from_group)? != header {
+        return Err(Error::ObservationChanged);
+    }
+    let conflicted: Vec<_> = block
+        .conflicted_txs
+        .map_or_else(Vec::new, |list| list.0)
+        .into_iter()
+        .map(|hash| hash.0)
+        .collect();
+    let succeeded = exact_transaction(
+        tx_id,
+        first.transaction_index,
+        &block.transactions.0,
+        &details,
+        &conflicted,
+    )?;
+    let inclusion = same_inclusion(&first, read_status(transport, tx_id, Some(from_group))?)?;
+    let outcome = if succeeded {
+        TransactionOutcome::ScriptSucceeded { inclusion, header }
+    } else {
+        TransactionOutcome::ScriptFailed { inclusion, header }
+    };
+    Ok(TransactionDetailsObservation {
+        observation: TransactionObservation {
+            identity,
+            transaction_id: tx_id,
+            outcome,
+        },
+        retained_details: Some(details),
+    })
 }

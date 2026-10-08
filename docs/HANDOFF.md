@@ -1,5 +1,7 @@
 # Development proof handoff
 
+**P5.2.2 local funding validation qualified (8 October 2026).** The SDK now correlates confirmed creator transactions on their actual source-group-to-group-zero chain, authenticates fixed-output bytes, applies native effective lock time `max(committed lock, canonical creator timestamp)`, and accepts only the two exact native projection forms while enforcing effective maturity. Source-policy V4 commits these semantics and bounded canonical head progress; older source identities cannot silently renew an approval. One aggregate passed 496 reader/funding checks. Actual configured public-testnet reads and independent native-protocol reconciliation qualified the bounded development preparation flow; no signing, deployment or settlement is claimed. The remaining P5 public acceptance, factory-domain proofs, DA reconstruction and P6-P8 gates remain open.
+
 Updated 7 October 2026. **P4.1-P4.3 are complete for one fresh 10-TX development proving fixture.** Mainnet and P5-P8 acceptance remain incomplete. This document describes published source interfaces and curated recorded outcomes; private execution inputs, databases, receipts, proofs, local identities, binary installations and raw evidence are not distributed.
 
 ## Acceptance boundary
