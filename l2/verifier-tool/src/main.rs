@@ -14,6 +14,8 @@ mod folded_msm;
 mod input;
 mod miller_cases;
 mod ordinary_miller;
+mod p5_env;
+mod p5_funding_read;
 mod pairing_cases;
 mod receipt_cases;
 mod receipt_fixture;
@@ -59,6 +61,72 @@ fn run() -> Result<(), String> {
     }
     if args.iter().any(|flag| flag == "--no-run-time-limit") {
         return Err("--no-run-time-limit must occur once as the first option".into());
+    }
+    if let [mode, file] = args.as_slice()
+        && mode == "--check-p5-env"
+    {
+        return p5_env::run(Path::new(file));
+    }
+    if let [mode, file, genesis, output] = args.as_slice()
+        && mode == "--observe-p5-funding"
+    {
+        if !no_run_time_limit {
+            return Err("Funding observation requires explicit --no-run-time-limit".into());
+        }
+        let genesis = genesis
+            .to_str()
+            .ok_or("Independent genesis pin must be UTF-8")?;
+        return p5_funding_read::run(Path::new(file), genesis, Path::new(output));
+    }
+    if let [mode, jar, output, file, genesis, policy] = args.as_slice()
+        && mode == "--testnet-bootstrap-draft"
+    {
+        if !no_run_time_limit {
+            return Err("Bootstrap draft requires explicit --no-run-time-limit".into());
+        }
+        let report = testnet_plan_cli::run_bootstrap(
+            Path::new(jar),
+            Path::new(output),
+            Path::new(file),
+            Path::new(genesis),
+            Path::new(policy),
+        )?;
+        println!("{report}");
+        return Ok(());
+    }
+    if let [mode, jar, output, file, genesis, policy, prior] = args.as_slice()
+        && mode == "--testnet-bootstrap-reuse"
+    {
+        if !no_run_time_limit {
+            return Err("Bootstrap reuse requires explicit --no-run-time-limit".into());
+        }
+        let report = testnet_plan_cli::run_bootstrap_with_compiled(
+            Path::new(jar),
+            Path::new(output),
+            Path::new(file),
+            Path::new(genesis),
+            Path::new(policy),
+            Path::new(prior),
+        )?;
+        println!("{report}");
+        return Ok(());
+    }
+    if let [mode, jar, output, file, genesis, policy, prior] = args.as_slice()
+        && mode == "--testnet-bootstrap-review-full"
+    {
+        if !no_run_time_limit {
+            return Err("Full bootstrap review requires explicit --no-run-time-limit".into());
+        }
+        let report = testnet_plan_cli::run_bootstrap_review_full(
+            Path::new(jar),
+            Path::new(output),
+            Path::new(file),
+            Path::new(genesis),
+            Path::new(policy),
+            Path::new(prior),
+        )?;
+        println!("{report}");
+        return Ok(());
     }
     if let [mode, jar, evidence, public_key, genesis, policy] = args.as_slice()
         && mode == "--testnet-plan-draft"

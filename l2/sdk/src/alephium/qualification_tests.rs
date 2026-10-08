@@ -4,6 +4,14 @@
 #[test]
 #[ignore = "Requires explicitly supplied, independently compiled and pinned project-drive script fixture"]
 fn p5_read_node_and_current_fixed_funding_aggregate() {
+    if std::env::var("L2_P5_AFFECTED_BULK").as_deref() == Ok("head-diagnostics") {
+        let head_checks = super::current_funding::tests::run_head_diagnostic_checks();
+        assert!(head_checks > 0);
+        println!(
+            "P5 head diagnostic aggregate: PASS head_checks={head_checks}; simulated facts, no live operations"
+        );
+        return;
+    }
     let reader_checks = super::read_node::tests::run_checks();
     let funding_checks = super::current_funding::tests::run_checks();
     assert!(reader_checks > 0 && funding_checks > 0);

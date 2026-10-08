@@ -11,7 +11,12 @@ pub(super) fn draft(
     effect: Value,
     limits: OperationLimit,
 ) -> Result<ScriptDraft, String> {
-    let source = format!("TxScript Main {{\n{body}\n}}\n");
+    let annotation = if kind == "initialize-genesis" {
+        "@using(preapprovedAssets = false)\n"
+    } else {
+        ""
+    };
+    let source = format!("{annotation}TxScript Main {{\n{body}\n}}\n");
     if source.len() > 131_072 {
         return Err("Instantiated script source exceeds planner bound".into());
     }

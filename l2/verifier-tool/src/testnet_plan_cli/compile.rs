@@ -1,11 +1,13 @@
 //! Exactly two pinned-JAR script compilations inside one offline draft bundle.
 //! Fresh derived script pins qualify syntax/mock fixtures, never live review.
+mod reuse;
 use super::{artifacts, io, policy::ArtifactInput};
 use crate::{
     compiler,
     input::Suite,
     testnet_plan::{CompiledScript, ReviewedScriptPins, ScriptDraft},
 };
+pub(super) use reuse::two_reused;
 use serde_json::{Value, json};
 use std::{
     fs,
@@ -43,13 +45,57 @@ pub(super) fn two(
     drafts: &[ScriptDraft; 2],
     dependencies: &[ArtifactInput; 3],
 ) -> Result<([CompiledScript; 2], Vec<Value>), String> {
+    two_scoped(jar, output, drafts, dependencies, false)
+}
+
+pub(super) fn two_bootstrap(
+    jar: &Path,
+    output: &Path,
+    drafts: &[ScriptDraft; 2],
+    dependencies: &[ArtifactInput; 3],
+) -> Result<([CompiledScript; 2], Vec<Value>), String> {
+    two_scoped(jar, output, drafts, dependencies, true)
+}
+
+pub(super) fn one_bootstrap(
+    jar: &Path,
+    output: &Path,
+    draft: &ScriptDraft,
+    dependencies: &[ArtifactInput; 3],
+) -> Result<(CompiledScript, Value), String> {
+    let directory = match draft.kind() {
+        "deploy-factory" => output.join("factory"),
+        "initialize-genesis" => output.join("initialize"),
+        _ => {
+            return Err(
+                "Single bootstrap compiler accepts only factory and initialization roles".into(),
+            );
+        }
+    };
+    one(jar, &directory, draft, dependencies, true)
+}
+
+fn two_scoped(
+    jar: &Path,
+    output: &Path,
+    drafts: &[ScriptDraft; 2],
+    dependencies: &[ArtifactInput; 3],
+    actual_caller: bool,
+) -> Result<([CompiledScript; 2], Vec<Value>), String> {
     let (proof, proof_record) = one(
         jar,
         &output.join("proof-template"),
         &drafts[0],
         dependencies,
+        actual_caller,
     )?;
-    let (data, data_record) = one(jar, &output.join("data-template"), &drafts[1], dependencies)?;
+    let (data, data_record) = one(
+        jar,
+        &output.join("data-template"),
+        &drafts[1],
+        dependencies,
+        actual_caller,
+    )?;
     Ok(([proof, data], vec![proof_record, data_record]))
 }
 
@@ -58,6 +104,7 @@ fn one(
     directory: &Path,
     draft: &ScriptDraft,
     dependencies: &[ArtifactInput; 3],
+    actual_caller: bool,
 ) -> Result<(CompiledScript, Value), String> {
     if draft.source().is_empty()
         || draft.source().len() > 131072
@@ -81,7 +128,7 @@ fn one(
     io::write(&sources.join("main.ral"), draft.source().as_bytes())?;
     io::write_json(
         &directory.join("compiler-intent.json"),
-        &json!({"scope": "private-offline-template-syntax",
+        &json!({"scope": if actual_caller { "private-actual-caller-template-syntax" } else { "private-offline-template-syntax" },
         "kind": draft.kind(), "sourceSha256": hex::encode(draft.source_sha256()),
         "compilerJarSha256": compiler::JAR_SHA256, "networkCalls": 0, "signing": false,
         "independentLiveScriptReviewPending": true, "allDependenciesFromFixedSourceInventory": true}),
@@ -130,7 +177,13 @@ fn one(
     let project_bytes = io::read(&outputs.join(".project.json"), io::JSON_LIMIT)?;
     let project = io::json(&project_bytes)?;
     validate_project(project, draft)?;
-    validate_main(&artifact)?;
+    match draft.kind() {
+        "deploy-proof-template" | "deploy-data-template" | "deploy-factory" => {
+            validate_main(&artifact)?
+        }
+        "initialize-genesis" => validate_main_assets(&artifact, false)?,
+        _ => return Err("Unsupported bootstrap compiler script role".into()),
+    }
     let template = io::text(&artifact, "bytecodeTemplate")?;
     if template.is_empty()
         || template.len() > 65536
@@ -159,7 +212,8 @@ fn one(
         "projectSha256": hex::encode(io::sha(&project_bytes)), "operationPolicySha256": hex::encode(draft.operation_policy_sha256()),
         "compilerJarSha256": compiler::JAR_SHA256, "compilerReportedVersion": "v4.7.0", "warningCount": 0,
         "rawArtifactAndCompleteScriptBound": true, "fixedDependencyArtifacts": dependency_outputs,
-        "pinAuthority": "derived from fixed-JAR compiler output for explicitly simulated aggregate only",
+        "pinAuthority": if actual_caller { "fixed-JAR syntax-qualified actual-caller draft; independent live compiled-script review pending" }
+            else { "derived from fixed-JAR compiler output for explicitly simulated aggregate only" },
         "independentLiveCompiledScriptReviewComplete": false, "liveSigningApproved": false,
         "jvmExecutableIndependentlyPinned": false});
     io::write_json(&directory.join("report.json"), &record)?;
@@ -185,6 +239,10 @@ fn validate_project(mut project: Value, draft: &ScriptDraft) -> Result<(), Strin
 }
 
 fn validate_main(artifact: &Value) -> Result<(), String> {
+    validate_main_assets(artifact, true)
+}
+
+fn validate_main_assets(artifact: &Value, preapproved_assets: bool) -> Result<(), String> {
     if artifact["version"] != "v4.7.0"
         || artifact["name"] != "Main"
         || artifact["fieldsSig"] != json!({"names": [], "types": [], "isMutable": []})
@@ -200,7 +258,7 @@ fn validate_main(artifact: &Value) -> Result<(), String> {
     let main = &functions[0];
     if main["name"] != "main"
         || main["isPublic"] != true
-        || main["usePreapprovedAssets"] != true
+        || main["usePreapprovedAssets"] != json!(preapproved_assets)
         || main["useAssetsInContract"] != false
         || main["paramNames"] != json!([])
         || main["paramTypes"] != json!([])

@@ -1,4 +1,4 @@
-use super::{CurrentFundingError as Error, CurrentFundingPolicy};
+use super::{CurrentFundingError as Error, CurrentFundingPolicy, HeadChangeReason as Reason};
 use crate::alephium::{
     FundingModel, FundingPin, MAX_INPUTS, OutputRef, PreviousOutput,
     read_node::{
@@ -63,7 +63,19 @@ pub(super) fn head(pin: &FundingPin, observed: &ChainHeader) -> Result<(), Error
         || pin.head_height != observed.height
         || pin.timestamp_ms != observed.timestamp_ms
     {
-        return Err(Error::HeadChanged);
+        return Err(Error::HeadChanged {
+            reason: if pin.head_height != observed.height {
+                Reason::PinnedHeight
+            } else if pin.head_hash != observed.hash {
+                Reason::PinnedHash
+            } else {
+                Reason::PinnedTimestamp
+            },
+            expected_height: pin.head_height,
+            observed_height: observed.height,
+            expected_timestamp_ms: pin.timestamp_ms,
+            observed_timestamp_ms: observed.timestamp_ms,
+        });
     }
     Ok(())
 }
@@ -164,18 +176,30 @@ pub(super) fn head_advance(before: &ChainHeader, after: &ChainHeader) -> Result<
     let advance = after
         .height
         .checked_sub(before.height)
-        .ok_or(Error::HeadChanged)?;
-    if before.hash == alloy_primitives::B256::ZERO
-        || after.hash == alloy_primitives::B256::ZERO
-        || after.timestamp_ms < before.timestamp_ms
-        || advance == 0 && before != after
-    {
-        return Err(Error::HeadChanged);
+        .ok_or_else(|| head_error(Reason::HeightRegression, before, after))?;
+    if before.hash == alloy_primitives::B256::ZERO || after.hash == alloy_primitives::B256::ZERO {
+        return Err(head_error(Reason::ZeroHeaderHash, before, after));
+    }
+    if after.timestamp_ms < before.timestamp_ms {
+        return Err(head_error(Reason::TimestampRegression, before, after));
+    }
+    if advance == 0 && before != after {
+        return Err(head_error(
+            if before.hash != after.hash {
+                Reason::SameHeightFork
+            } else {
+                Reason::SameHeightHeader
+            },
+            before,
+            after,
+        ));
     }
     if advance > u64::from(super::MAX_OWNER_HEAD_ADVANCE) {
         return Err(Error::HeadProgressTooLarge {
             observed: advance,
             maximum: super::MAX_OWNER_HEAD_ADVANCE,
+            before_height: before.height,
+            after_height: after.height,
         });
     }
     Ok(advance as u32)
@@ -189,27 +213,74 @@ pub(super) fn head_lineage(
     lineage: &[ChainHeader],
 ) -> Result<(), Error> {
     let advance = head_advance(before, after)?;
-    if lineage.len() != advance as usize + 1
-        || lineage.first() != Some(before)
-        || lineage.last() != Some(after)
-    {
-        return Err(Error::HeadChanged);
+    if lineage.len() != advance as usize + 1 {
+        return Err(head_error(Reason::LineageLength, before, after));
+    }
+    if lineage.first() != Some(before) {
+        return Err(head_error(Reason::LineageStart, before, &lineage[0]));
+    }
+    if lineage.last() != Some(after) {
+        return Err(head_error(
+            Reason::LineageEnd,
+            after,
+            &lineage[advance as usize],
+        ));
     }
     let mut seen = BTreeSet::new();
     for header in lineage {
-        if header.hash == alloy_primitives::B256::ZERO || !seen.insert(header.hash) {
-            return Err(Error::HeadChanged);
+        if header.hash == alloy_primitives::B256::ZERO {
+            return Err(head_error(Reason::ZeroHeaderHash, before, header));
+        }
+        if !seen.insert(header.hash) {
+            return Err(head_error(Reason::LineageDuplicate, before, header));
         }
     }
     for pair in lineage.windows(2) {
         let previous = &pair[0];
         let next = &pair[1];
-        if previous.height.checked_add(1) != Some(next.height)
-            || next.parent() != Some(previous.hash)
-            || next.timestamp_ms < previous.timestamp_ms
-        {
-            return Err(Error::HeadChanged);
+        let expected_height = previous
+            .height
+            .checked_add(1)
+            .ok_or_else(|| head_error(Reason::HeightOverflow, previous, next))?;
+        let reason = if expected_height != next.height {
+            Some(Reason::LineageHeight)
+        } else if next.parent() != Some(previous.hash) {
+            Some(Reason::LineageParent)
+        } else if next.timestamp_ms < previous.timestamp_ms {
+            Some(Reason::LineageTimestamp)
+        } else {
+            None
+        };
+        if let Some(reason) = reason {
+            return Err(Error::HeadChanged {
+                reason,
+                expected_height,
+                observed_height: next.height,
+                expected_timestamp_ms: previous.timestamp_ms,
+                observed_timestamp_ms: next.timestamp_ms,
+            });
         }
     }
     Ok(())
+}
+
+/// For progression refusals, expected time is the permitted lower bound;
+/// for exact-header comparisons it is the previously pinned timestamp.
+pub(super) fn head_error(reason: Reason, expected: &ChainHeader, observed: &ChainHeader) -> Error {
+    Error::HeadChanged {
+        reason,
+        expected_height: expected.height,
+        observed_height: observed.height,
+        expected_timestamp_ms: expected.timestamp_ms,
+        observed_timestamp_ms: observed.timestamp_ms,
+    }
+}
+
+pub(super) fn creator_origin_error(expected: &ChainHeader, observed: &ChainHeader) -> Error {
+    Error::CreatorOriginChanged {
+        expected_height: expected.height,
+        observed_height: observed.height,
+        expected_timestamp_ms: expected.timestamp_ms,
+        observed_timestamp_ms: observed.timestamp_ms,
+    }
 }

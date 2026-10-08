@@ -113,6 +113,18 @@ impl ScriptDraft {
     pub fn operation_policy_sha256(&self) -> Hash {
         self.operation_policy_sha256
     }
+    pub fn limits(&self) -> &OperationLimit {
+        &self.limits
+    }
+    pub fn arguments_sha256(&self) -> Hash {
+        self.argument_sha256
+    }
+    pub fn expected_effect(&self) -> &Value {
+        &self.expected_effect
+    }
+    pub fn expected_effect_sha256(&self) -> Hash {
+        self.expected_effect_sha256
+    }
 }
 
 pub(crate) struct CompiledScript {
@@ -136,6 +148,9 @@ impl CompiledScript {
     }
     pub fn artifact_sha256(&self) -> Hash {
         self.artifact_sha256
+    }
+    pub fn source_sha256(&self) -> Hash {
+        self.source_sha256
     }
     pub fn script_sha256(&self) -> Hash {
         self.script_sha256
@@ -199,5 +214,17 @@ impl Deployment {
     }
     pub fn tx_id(&self) -> Hash {
         self.tx_id
+    }
+    pub fn review_metadata(&self) -> Value {
+        json!({"kind": self.kind, "predictedContractId": hex::encode(self.contract_id),
+            "transactionId": hex::encode(self.tx_id), "unsignedSha256": hex::encode(self.unsigned_sha256),
+            "scriptSha256": hex::encode(self.script_sha256), "creationOutputIndex": self.creation_output_index,
+            "group": self.group, "artifactSha256": hex::encode(self.artifact_sha256),
+            "callerPublicKeySha256": hex::encode(self.caller_public_key_sha256),
+            "fundingHead": hex::encode(self.funding_head), "fundingSource": hex::encode(self.funding_source),
+            "publicationScope": hex::encode(self.publication_scope),
+            "expectedCodeHash": hex::encode(self.expected_code_hash),
+            "reservedInputKeys": self.reserved_input_keys.iter().map(hex::encode).collect::<Vec<_>>(),
+            "predictionOnly": true, "actualDeploymentObserved": false})
     }
 }

@@ -44,6 +44,12 @@ fn approved_script() -> Vec<u8> {
     bytes
 }
 
+/// Parent may select this affected bulk after diagnostic-only changes; it does
+/// not load signing/script fixtures or rerun unrelated funding/codec checks.
+pub(crate) fn run_head_diagnostic_checks() -> usize {
+    head_progress::run_checks()
+}
+
 pub(crate) fn run_checks() -> usize {
     let script = approved_script();
     let f = fixture::build(None);
@@ -258,7 +264,7 @@ pub(crate) fn run_checks() -> usize {
         + context_checks::run_checks()
         + diagnostics::run_checks()
         + creator_profile::run_checks()
-        + head_progress::run_checks()
+        + run_head_diagnostic_checks()
         + head_capability::run_checks()
         + lock_time::run_checks()
         + lock_binding::run_checks()

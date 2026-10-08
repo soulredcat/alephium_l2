@@ -1,8 +1,11 @@
 //! Offline source-only draft packaging. This mode never freezes a signable plan.
 mod artifacts;
+mod bootstrap;
 mod compile;
 mod io;
 mod policy;
+
+pub(crate) use bootstrap::{run_bootstrap, run_bootstrap_review_full, run_bootstrap_with_compiled};
 
 use crate::testnet_plan::{prepare_templates, prerequisites, pure_aggregate};
 use serde_json::{Value, json};
@@ -18,6 +21,13 @@ pub(crate) fn run(
     policy_json: &Path,
 ) -> Result<Value, String> {
     let inputs = policy::load(policy_json, publisher_public_key, independent_l1_genesis)?;
+    let vector = inputs
+        .vector
+        .as_ref()
+        .ok_or("Legacy mock draft requires its explicit independent simulation vector")?;
+    let vector_sha256 = inputs
+        .vector_sha256
+        .ok_or("Legacy mock draft requires its independently pinned simulation record")?;
     let jar = io::check_jar(jar)?;
     let (frozen, artifact_records) = artifacts::load(&inputs)?;
     let drafts = prepare_templates(
@@ -31,7 +41,7 @@ pub(crate) fn run(
         &output.join("draft-intent.json"),
         &json!({"schema": 1,
         "scope": "offline-source-only-testnet-plan-draft", "policySha256": hex::encode(inputs.policy_sha256),
-        "deploymentVectorSha256": hex::encode(inputs.vector_sha256), "compilerJarSha256": crate::compiler::JAR_SHA256,
+        "deploymentVectorSha256": hex::encode(vector_sha256), "compilerJarSha256": crate::compiler::JAR_SHA256,
         "compilationContexts": 2, "aggregateExecutions": 1, "genuineReceiptClaims": false,
         "funding": "simulated SDK fixture only", "actualPublisherIdentityConfirmed": false,
         "signaturesCreated": false, "networkCalls": 0, "vmCalls": 0,
@@ -39,13 +49,7 @@ pub(crate) fn run(
     )?;
     let result = (|| {
         let (compiled, script_records) = compile::two(&jar, &output, &drafts, &inputs.artifacts)?;
-        let aggregate = pure_aggregate(
-            &frozen,
-            &inputs.policy,
-            &inputs.actor,
-            &compiled,
-            &inputs.vector,
-        )?;
+        let aggregate = pure_aggregate(&frozen, &inputs.policy, &inputs.actor, &compiled, vector)?;
         io::write_json(&output.join("pure-aggregate.json"), &aggregate)?;
         let pending = prerequisites(Some(&inputs.actor), Some(&inputs.policy), None, None, 2);
         if aggregate["passed"] != true
@@ -56,7 +60,7 @@ pub(crate) fn run(
         }
         let report = json!({"schema": 1, "scope": "offline-source-only-testnet-plan-draft", "passed": true,
             "qualification": "two pinned-JAR syntax templates plus one explicit simulated-funding planner aggregate",
-            "policySha256": hex::encode(inputs.policy_sha256), "deploymentVectorSha256": hex::encode(inputs.vector_sha256),
+            "policySha256": hex::encode(inputs.policy_sha256), "deploymentVectorSha256": hex::encode(vector_sha256),
             "actorPublicKeySha256": hex::encode(io::sha(&inputs.actor.public_key)),
             "suppliedLimits": policy::limits_report(&inputs), "preservedArtifacts": artifact_records,
             "compiledTemplates": script_records, "pureAggregate": aggregate,

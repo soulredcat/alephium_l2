@@ -203,7 +203,10 @@ fn observe(
                 || original.inclusion.block_hash != current.inclusion.block_hash
                 || original.inclusion.transaction_index != current.inclusion.transaction_index
             {
-                return Err(Error::CreatorMismatch);
+                return Err(checks::creator_origin_error(
+                    &original.header,
+                    &current.header,
+                ));
             }
             for fact in provenance
                 .iter_mut()
@@ -231,14 +234,29 @@ fn observe(
         }
         let last = node.canonical_header(after.header.height)?;
         checks::identity(&final_pin, &last.identity, policy)?;
-        if last.identity != after.identity || last.header != after.header {
-            return Err(Error::HeadChanged);
+        if last.identity != after.identity {
+            return Err(checks::head_error(
+                HeadChangeReason::FinalSourceIdentity,
+                &after.header,
+                &last.header,
+            ));
+        }
+        if last.header != after.header {
+            return Err(checks::head_error(
+                HeadChangeReason::FinalCanonicalHeader,
+                &after.header,
+                &last.header,
+            ));
         }
         lineage
     } else {
         checks::head(pin, &after.header)?;
         if after.header != context.before.header {
-            return Err(Error::HeadChanged);
+            return Err(checks::head_error(
+                HeadChangeReason::StrictHeader,
+                &context.before.header,
+                &after.header,
+            ));
         }
         Vec::new()
     };
@@ -311,7 +329,13 @@ fn read_lineage(
             .header
             .height
             .checked_add(u64::from(step))
-            .ok_or(CurrentFundingError::HeadChanged)?;
+            .ok_or_else(|| {
+                checks::head_error(
+                    HeadChangeReason::HeightOverflow,
+                    &before.header,
+                    &after.header,
+                )
+            })?;
         let observed = node.canonical_header(height)?;
         checks::identity(pin, &observed.identity, policy)?;
         if observed.identity != before.identity {

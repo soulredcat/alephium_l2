@@ -20,9 +20,9 @@ pub(super) struct Inputs {
     pub limits: [OperationLimit; 2],
     pub total: TotalLimit,
     pub artifacts: [ArtifactInput; 3],
-    pub vector: DeploymentVector,
+    pub vector: Option<DeploymentVector>,
     pub policy_sha256: [u8; 32],
-    pub vector_sha256: [u8; 32],
+    pub vector_sha256: Option<[u8; 32]>,
 }
 
 pub(super) fn load(path: &Path, key: &str, l1_genesis: &str) -> Result<Inputs, String> {
@@ -118,55 +118,60 @@ pub(super) fn load(path: &Path, key: &str, l1_genesis: &str) -> Result<Inputs, S
         artifact(&artifacts["data"])?,
         artifact(&artifacts["factory"])?,
     ];
-    let simulation = &value["simulation"];
-    io::object(
-        simulation,
-        &[
-            "deploymentVectorPath",
-            "deploymentVectorSha256",
-            "fundingIsSimulated",
-            "vectorIsIndependentSourceDerived",
-        ],
-    )?;
-    if simulation["fundingIsSimulated"] != true
-        || simulation["vectorIsIndependentSourceDerived"] != true
-    {
-        return Err("Offline aggregate requires explicit simulated-funding and independent-vector acknowledgements".into());
-    }
-    let vector_sha256 = io::hash(simulation, "deploymentVectorSha256")?;
-    let vector = io::pinned_json(
-        Path::new(io::text(simulation, "deploymentVectorPath")?),
-        vector_sha256,
-    )?;
-    io::object(
-        &vector,
-        &[
-            "schema",
-            "actor_reference",
-            "actor_group",
-            "deployment_vector",
-            "provenance",
-            "signing_or_proof",
-        ],
-    )?;
-    if vector["schema"] != 1
-        || vector["actor_group"] != 0
-        || vector["signing_or_proof"] != false
-        || io::text(&vector, "actor_reference")?.is_empty()
-        || io::text(&vector, "provenance")?.is_empty()
-    {
-        return Err("Independent source-derived fixture metadata differs".into());
-    }
-    let raw_vector = &vector["deployment_vector"];
-    io::object(
-        raw_vector,
-        &["tx_id", "output_index", "expected_contract_id"],
-    )?;
-    let vector = DeploymentVector {
-        tx_id: io::hash(raw_vector, "tx_id")?,
-        output_index: u32::try_from(io::number(raw_vector, "output_index")?)
-            .map_err(|_| "Vector output index exceeds u32")?,
-        expected_contract_id: io::hash(raw_vector, "expected_contract_id")?,
+    let (vector, vector_sha256) = if value["simulation"].is_null() {
+        (None, None)
+    } else {
+        let simulation = &value["simulation"];
+        io::object(
+            simulation,
+            &[
+                "deploymentVectorPath",
+                "deploymentVectorSha256",
+                "fundingIsSimulated",
+                "vectorIsIndependentSourceDerived",
+            ],
+        )?;
+        if simulation["fundingIsSimulated"] != true
+            || simulation["vectorIsIndependentSourceDerived"] != true
+        {
+            return Err("Offline aggregate requires explicit simulated-funding and independent-vector acknowledgements".into());
+        }
+        let vector_sha256 = io::hash(simulation, "deploymentVectorSha256")?;
+        let vector = io::pinned_json(
+            Path::new(io::text(simulation, "deploymentVectorPath")?),
+            vector_sha256,
+        )?;
+        io::object(
+            &vector,
+            &[
+                "schema",
+                "actor_reference",
+                "actor_group",
+                "deployment_vector",
+                "provenance",
+                "signing_or_proof",
+            ],
+        )?;
+        if vector["schema"] != 1
+            || vector["actor_group"] != 0
+            || vector["signing_or_proof"] != false
+            || io::text(&vector, "actor_reference")?.is_empty()
+            || io::text(&vector, "provenance")?.is_empty()
+        {
+            return Err("Independent source-derived fixture metadata differs".into());
+        }
+        let raw_vector = &vector["deployment_vector"];
+        io::object(
+            raw_vector,
+            &["tx_id", "output_index", "expected_contract_id"],
+        )?;
+        let vector = DeploymentVector {
+            tx_id: io::hash(raw_vector, "tx_id")?,
+            output_index: u32::try_from(io::number(raw_vector, "output_index")?)
+                .map_err(|_| "Vector output index exceeds u32")?,
+            expected_contract_id: io::hash(raw_vector, "expected_contract_id")?,
+        };
+        (Some(vector), Some(vector_sha256))
     };
     Ok(Inputs {
         actor,

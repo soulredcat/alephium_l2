@@ -18,6 +18,31 @@ pub enum LockTimeProjection {
     Coincident,
 }
 
+/// Refusal classification only; no hash, owner or transaction data is exposed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HeadChangeReason {
+    PinnedHeight,
+    PinnedHash,
+    PinnedTimestamp,
+    HeightRegression,
+    TimestampRegression,
+    ZeroHeaderHash,
+    SameHeightFork,
+    SameHeightHeader,
+    LineageLength,
+    LineageStart,
+    LineageEnd,
+    LineageDuplicate,
+    LineageHeight,
+    LineageParent,
+    LineageTimestamp,
+    FinalCanonicalHeader,
+    FinalSourceIdentity,
+    StrictHeader,
+    StrictUnexpectedLineage,
+    HeightOverflow,
+}
+
 /// These thresholds are independently selected local policy, not values echoed
 /// by a transaction builder. Every confirmation threshold must be nonzero.
 #[derive(Clone, PartialEq, Eq)]
@@ -125,7 +150,15 @@ impl CurrentFixedFundingObservation {
         if self.current_window {
             super::checks::head_lineage(&self.before.header, &self.after.header, &self.head_lineage)
         } else if self.before.header != self.after.header || !self.head_lineage.is_empty() {
-            Err(CurrentFundingError::HeadChanged)
+            Err(super::checks::head_error(
+                if !self.head_lineage.is_empty() {
+                    HeadChangeReason::StrictUnexpectedLineage
+                } else {
+                    HeadChangeReason::StrictHeader
+                },
+                &self.before.header,
+                &self.after.header,
+            ))
         } else {
             Ok(())
         }
@@ -140,10 +173,24 @@ pub enum CurrentFundingError {
     InvalidPublisher,
     WrongFundingModel,
     IdentityMismatch,
-    HeadChanged,
+    HeadChanged {
+        reason: HeadChangeReason,
+        expected_height: u64,
+        observed_height: u64,
+        expected_timestamp_ms: u64,
+        observed_timestamp_ms: u64,
+    },
     HeadProgressTooLarge {
         observed: u64,
         maximum: u32,
+        before_height: u64,
+        after_height: u64,
+    },
+    CreatorOriginChanged {
+        expected_height: u64,
+        observed_height: u64,
+        expected_timestamp_ms: u64,
+        observed_timestamp_ms: u64,
     },
     CreatorTxNotFound,
     CreatorMemPooled,

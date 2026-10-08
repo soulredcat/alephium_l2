@@ -1,7 +1,7 @@
 {
   "schema": 2,
   "updated": "2026-10-08",
-  "scope": "Published P4/wallet/P5 foundations plus locally qualified read/current-funding, publisher file handoff and offline draft preparation; actual public P5 acceptance pending",
+  "scope": "Published P4 and P5 source foundations with qualified conditional four-operation unsigned bootstrap preparation; actual public P5 acceptance pending",
   "p4_complete": true,
   "p4_acceptance_scope": "Fresh 10-transaction development proving fixture",
   "mainnet_complete": false,
@@ -363,5 +363,27 @@
     "private_execution_artifacts_included": false,
     "live_signing_deployment_or_settlement": false,
     "public_phase5_complete": false
+  },
+  "p5_2_3_offline_bootstrap": {
+    "status": "qualified offline preparation",
+    "operations": 4,
+    "distinct_confirmed_inputs": 4,
+    "cached_template_compilers": 2,
+    "new_factory_initialize_compilers": 2,
+    "independent_native_roundtrip_and_identity": true,
+    "persisted_source_script_artifact_unsigned_reconciliation": true,
+    "exact_fee_deposit_change_conservation": true,
+    "conditional_contract_predictions": 3,
+    "initializer_creates_contract": false,
+    "fee_max_ALPH": "2",
+    "deposit_ALPH": "0.3",
+    "bootstrap_debit_max_ALPH": "2.3",
+    "gas_measured": false,
+    "head_diagnostic_affected_checks": 37,
+    "unchanged_reader_funding_checks_repeated": false,
+    "head_guard_semantics_changed": false,
+    "owned_cleanup_complete": true,
+    "live_signing_submission_or_deployment": false,
+    "public_settlement_or_P5_complete": false
   }
 }
