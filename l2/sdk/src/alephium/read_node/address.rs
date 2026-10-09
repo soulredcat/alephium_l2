@@ -75,6 +75,10 @@ impl ContractAddress {
     pub fn id(&self) -> B256 {
         self.id
     }
+    /// Native contract output hint, separate from its UTXO reference key.
+    pub fn output_hint(&self) -> u32 {
+        crate::alephium::codec::owner_hint(self.id) & !1
+    }
     pub fn group(&self) -> u8 {
         self.id.as_slice()[31]
     }

@@ -2,8 +2,25 @@
 //! Source observations are simulated; no live RPC, signing or submission runs.
 
 #[test]
+fn p5_funding_preparation_bulk() {
+    let checks = super::funding_preparation::tests::run_checks();
+    assert!(checks > 0);
+    println!(
+        "P5 funding preparation aggregate: PASS checks={checks}; simulated inputs, no live operations"
+    );
+}
+
+#[test]
 #[ignore = "Requires explicitly supplied, independently compiled and pinned project-drive script fixture"]
 fn p5_read_node_and_current_fixed_funding_aggregate() {
+    if std::env::var("L2_P5_AFFECTED_BULK").as_deref() == Ok("execution-evidence") {
+        let checks = super::read_node::execution_tests::run_checks();
+        assert!(checks > 0);
+        println!(
+            "P5 execution evidence aggregate: PASS checks={checks}; simulated facts, no live operations"
+        );
+        return;
+    }
     if std::env::var("L2_P5_AFFECTED_BULK").as_deref() == Ok("head-diagnostics") {
         let head_checks = super::current_funding::tests::run_head_diagnostic_checks();
         assert!(head_checks > 0);

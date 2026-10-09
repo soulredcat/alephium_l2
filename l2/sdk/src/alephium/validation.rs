@@ -248,6 +248,19 @@ pub(super) fn validate_unsigned_observation(
 
 /// Verify one detached 64-byte low-S r||s signature over the transaction ID.
 /// The ID is the ECDSA prehash: no Ethereum prefix, recovery byte or extra hash.
+/// Verify a detached signature without cloning or consuming its sealed intent.
+pub fn verify_detached_signature(
+    unsigned: &ValidatedUnsignedAlephium,
+    signature: &[u8],
+) -> Result<(), AlephiumValidationError> {
+    verify_prehash(
+        unsigned.tx_id,
+        &unsigned.operation.spec.caller_public_key,
+        signature,
+    )
+    .map(|_| ())
+}
+
 pub fn validate_detached_signature(
     unsigned: ValidatedUnsignedAlephium,
     signature: &[u8],

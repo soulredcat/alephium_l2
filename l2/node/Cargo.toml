@@ -9,6 +9,8 @@ default-run = "alephium-l2-node"
 cuda = ["dep:alephium-l2-gpu"]
 
 [dependencies]
+reqwest = { version = "=0.12.28", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+secp256k1 = { version = "=0.31.1", default-features = false, features = ["std"] }
 alephium-l2-sdk = { path = "../sdk" }
 alephium-l2-gpu = { path = "../gpu", optional = true }
 revm = { version = "=43.0.3", default-features = false, features = ["std", "secp256k1", "portable"] }
@@ -29,3 +31,16 @@ hex = "0.4"
 alloy-rpc-types-eth = "=2.5.0"
 tempfile = "=3.23.0"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json"] }
+
+[[test]]
+name = "serial_dispatch"
+path = "../../test/publisher/serial_dispatch.rs"
+
+[[test]]
+name = "http_dispatch_transport"
+path = "../../test/publisher/http_dispatch_transport.rs"
+
+[[test]]
+name = "tps_bulk"
+path = "../../test/performance/tps_bulk.rs"
+required-features = ["cuda"]

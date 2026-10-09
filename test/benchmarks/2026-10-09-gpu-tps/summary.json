@@ -1,0 +1,48 @@
+{
+  "schema": 1,
+  "date": "2026-10-09",
+  "passed": true,
+  "sizes": [
+    1000,
+    10000,
+    100000
+  ],
+  "total_committed": 111000,
+  "hardware": {
+    "cpu": "AMD Ryzen 7 5800X",
+    "logical_cpus": 16,
+    "gpu": "NVIDIA GeForce RTX 3070 Ti",
+    "gpu_memory_mib": 8192,
+    "driver": "610.88",
+    "os": "Windows",
+    "system_ram_gib": 32
+  },
+  "profile": {
+    "release": true,
+    "client_workers": 15,
+    "verification_workers": 15,
+    "worker_rule": "available logical CPUs minus one; factor1",
+    "block_gas": 3000000000,
+    "block_bytes": 33554432,
+    "max_pending": 100000,
+    "priority": "BelowNormal",
+    "windows_commit_cap_bytes": 4294967296,
+    "total_deadline_seconds": null
+  },
+  "runner": {
+    "elapsed_seconds": 113.3856801,
+    "sampled_peak_working_bytes": 605278208.0,
+    "sampled_peak_private_bytes": 799580160.0,
+    "remaining_owned_children": 0,
+    "cleanup_complete": true,
+    "binary_sha256": "3c86ca477d436f7a3f14bdf7c2d1f23c5ae02630c79690ef8bfd96d402a1817e"
+  },
+  "prior_attempts": [
+    "First build cancelled for operator correction to original CPU-minus-one profile; zero benchmark transactions.",
+    "Second build failed on three Result error-type conversions; fixed before any benchmark."
+  ],
+  "functional_bundle_attempts": 1,
+  "retries": 0,
+  "zk_receipts": 0,
+  "public_rpc_or_settlement": false
+}

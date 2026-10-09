@@ -4,6 +4,7 @@ mod capacity;
 mod checkpoint;
 mod commit_phases;
 mod discard;
+mod funding_preparation;
 mod publisher;
 use crate::protocol::encoding;
 pub(crate) mod path;
@@ -34,6 +35,7 @@ pub struct Store {
     database: Database,
     items: Keyspace,
     publisher_items: Keyspace,
+    funding_items: Keyspace,
     chain_id: u64,
     profile_capacity: Capacity,
     block_index_complete: bool,
@@ -82,10 +84,14 @@ impl Store {
         let publisher_items = database
             .keyspace("l2-publisher-v1", KeyspaceCreateOptions::default)
             .map_err(engine_error)?;
+        let funding_items = database
+            .keyspace("l2-funding-preparation-v1", KeyspaceCreateOptions::default)
+            .map_err(engine_error)?;
         let mut store = Self {
             database,
             items,
             publisher_items,
+            funding_items,
             chain_id: genesis.chain_id,
             profile_capacity: genesis.capacity,
             block_index_complete: false,
@@ -112,6 +118,7 @@ impl Store {
         }
         store.block_index_complete = recovery::validate(&store.view()?, genesis, &identity)?;
         publisher::validate_open(&store)?;
+        funding_preparation::validate_open(&store)?;
         Ok(store)
     }
 

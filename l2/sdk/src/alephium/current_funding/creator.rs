@@ -16,6 +16,16 @@ pub(super) fn fixed_outputs(
     claimed_id: B256,
     approved_script: Option<&[u8]>,
 ) -> Result<Vec<PreviousOutput>, Error> {
+    execution_unsigned(details, claimed_id, approved_script).map(|(_, outputs)| outputs)
+}
+
+/// Reuse the exact native creator encoder for correlated execution evidence.
+/// No signature, funding or execution authority is created by these bytes.
+pub(crate) fn execution_unsigned(
+    details: &Value,
+    claimed_id: B256,
+    approved_script: Option<&[u8]>,
+) -> Result<(Vec<u8>, Vec<PreviousOutput>), Error> {
     let unsigned = details.get("unsigned").ok_or(Error::MalformedCreator)?;
     let unsigned = wire::object(
         unsigned,
@@ -69,7 +79,7 @@ pub(super) fn fixed_outputs(
     if alephium_hash(encoded.as_bytes()) != claimed_id {
         return Err(Error::CreatorMismatch);
     }
-    Ok(previous)
+    Ok((encoded.as_bytes().to_vec(), previous))
 }
 
 fn encode_script(

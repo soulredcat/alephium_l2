@@ -1,0 +1,160 @@
+{
+  "actual_verification_workers": 15,
+  "available_cpus": 16,
+  "build_profile": "release",
+  "checkpoint_encoded_bytes": 210783,
+  "client_workers": 15,
+  "csv": "transactions-1000.csv.gz",
+  "dataset_preserved": true,
+  "final_head": {
+    "commit_id": "0x668a175b23670cb02146ff9ca9925d8fb56b7aa807ba3c93265d1b1127ff9f05",
+    "genesis_id": "0x35e786c907daec30a0d5d1bf7c9ef91efd9ef58ebe5b18e040cb3cbb1d1d0fb6",
+    "height": 4,
+    "timestamp": 1791518782
+  },
+  "gpu_full_cpu_oracle_required": true,
+  "http_server_started": false,
+  "ledger_accounting_verified": true,
+  "measurement": {
+    "ack_latency_ns": {
+      "max": 82504600,
+      "min": 35230200,
+      "p50": 82116600,
+      "p95": 82477600,
+      "p99": 82491400
+    },
+    "completion_elapsed_ns": 247005700,
+    "completion_tps": 4048.4895692690493,
+    "denominator": "before first task spawn through last client-observed committed receipt",
+    "durable_ack_elapsed_ns": 82776800,
+    "durable_ack_tps": 12080.67961071218,
+    "formula": "unique successful committed hashes * 1000000000 / completion_elapsed_ns",
+    "gpu": {
+      "after": {
+        "active": true,
+        "batches": 5,
+        "chunk_limit": 24576,
+        "cpu_oracle_checked": true,
+        "device": "NVIDIA GeForce RTX 3070 Ti",
+        "elapsed_ns": 112958200,
+        "failures": 0,
+        "selected": "cuda",
+        "verified": 1003
+      },
+      "batches_delta": 2,
+      "before": {
+        "active": true,
+        "batches": 3,
+        "chunk_limit": 24576,
+        "cpu_oracle_checked": true,
+        "device": "NVIDIA GeForce RTX 3070 Ti",
+        "elapsed_ns": 49818300,
+        "failures": 0,
+        "selected": "cuda",
+        "verified": 3
+      },
+      "elapsed_ns_delta": 63139900,
+      "scope": "CUDA signature recovery; full CPU oracle; ordered EVM execution is CPU",
+      "verified_delta": 1000
+    },
+    "last_request_arrival_offset_ns": 1138100,
+    "late_receipts": 0,
+    "observed_requests": 1000,
+    "observer": {
+      "head_broadcasts": 1,
+      "view_polls": 16
+    },
+    "observer_interval_ms": 5,
+    "offered_transactions": 1000,
+    "original_next_block_receipts": 1000,
+    "overall_deadline_seconds": null,
+    "per_request_poll_timers": 0,
+    "receipt_latency_ns": {
+      "max": 246977200,
+      "min": 245589800,
+      "p50": 246334400,
+      "p95": 246825200,
+      "p99": 246901300
+    },
+    "stage_metrics": {
+      "admitted_transactions": 1000,
+      "durable_admission": {
+        "cumulative_max_ns_after": 6933300,
+        "cumulative_max_ns_before": 3256200,
+        "samples": 2,
+        "total_ns": 10193300
+      },
+      "durable_block_commit": {
+        "cumulative_max_ns_after": 14569000,
+        "cumulative_max_ns_before": 5204200,
+        "samples": 1,
+        "total_ns": 14569000
+      },
+      "execution": {
+        "cumulative_max_ns_after": 4034900,
+        "cumulative_max_ns_before": 1627000,
+        "samples": 1,
+        "total_ns": 4034900
+      },
+      "execution_attempt_transactions": 1000,
+      "execution_counter_is_tps_numerator": false,
+      "selection": {
+        "cumulative_max_ns_after": 381700,
+        "cumulative_max_ns_before": 24300,
+        "samples": 1,
+        "total_ns": 381700
+      },
+      "stage_totals_are_not_wall_time": true,
+      "sync_all_commit": {
+        "cumulative_max_ns_after": 7460900,
+        "cumulative_max_ns_before": 3659600,
+        "samples": 1,
+        "total_ns": 7460900
+      },
+      "validation": {
+        "cumulative_max_ns_after": 40088500,
+        "cumulative_max_ns_before": 20449500,
+        "samples": 2,
+        "total_ns": 71984700
+      }
+    },
+    "target_is_acceptance_gate": false,
+    "unique_durable_acks": 1000,
+    "unique_successful_committed_transactions": 1000
+  },
+  "offered_transactions": 1000,
+  "outside_tps": "setup/funding/signing/shutdown/reopen/accounting/serialization",
+  "owned_worker_joined": true,
+  "passed": true,
+  "pending_after_cleanup": 0,
+  "producer_checkpoint_limit": 26648576,
+  "profile": {
+    "block_bytes": 33554432,
+    "block_gas": 3000000000,
+    "max_pending": 100000
+  },
+  "proof_generated": false,
+  "public_capacity_claim": false,
+  "reopen_audit_elapsed_ns": 87986000,
+  "reopen_identical": true,
+  "requested_verification_workers": 15,
+  "schema": 1,
+  "scope": "auditable direct-service TPS, not HTTP/L1 throughput or ZK proof",
+  "sequential_evm_cpu": true,
+  "settlement_accepted": false,
+  "setup_elapsed_ns": 663888200,
+  "setup_transactions": 3,
+  "signing_elapsed_ns": 69450400,
+  "state_digest": "0x7541d855e2bfc510cf823db50a01eab0a3a659da5e83032485313abc513dc2e5",
+  "zk_receipt": false,
+  "independent_csv_audit": {
+    "passed": true,
+    "unique_committed": 1000,
+    "last_receipt_offset_ns": 247005700,
+    "total_fee_wei": "21000000",
+    "uncompressed_csv_sha256": "f9f84eac406822ad9b08cfb78033a14dfb904d00cbdd85877da2383fc21cf24f",
+    "gzip_sha256": "6a37ecc558c3fa24abd9b9154c0d68e29e86908f1b4c4d7040842502bc9076db",
+    "sender_recipient_columns_omitted": true,
+    "signatures_and_raw_envelopes_included": false
+  }
+}

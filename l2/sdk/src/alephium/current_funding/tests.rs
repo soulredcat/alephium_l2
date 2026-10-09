@@ -50,6 +50,64 @@ pub(crate) fn run_head_diagnostic_checks() -> usize {
     head_progress::run_checks()
 }
 
+/// Crate-test-only sealed-shaped facts; never a production observation source.
+pub(crate) fn funding_preparation_fixture() -> ([u8; 33], CurrentFixedFundingObservation) {
+    let mut fixture = fixture::build(None);
+    fixture.observation.current_window = true;
+    fixture.observation.head_lineage = vec![fixture.observation.after.header.clone()];
+    let reference = fixture.observation.outputs()[0].reference;
+    (
+        fixture.operation.spec().caller_public_key,
+        fixture.observation.select_references(&[reference]).unwrap(),
+    )
+}
+
+/// Malformed crate-test-only observations exercise the new preparation refusal.
+pub(crate) fn funding_preparation_invalid_fixture(
+    case: u8,
+) -> ([u8; 33], CurrentFixedFundingObservation) {
+    let (key, mut observation) = funding_preparation_fixture();
+    match case {
+        0 => {
+            observation.funding.outputs.clear();
+            observation.provenance.clear();
+        }
+        1 => {
+            observation
+                .funding
+                .outputs
+                .push(observation.funding.outputs[0].clone());
+            observation
+                .provenance
+                .push(observation.provenance[0].clone());
+        }
+        2 => {
+            let lock = observation.funding.pin.timestamp_ms + 1;
+            observation.funding.outputs[0].lock_time_ms = lock;
+            observation.provenance[0].committed_lock_time_ms = lock;
+            observation.provenance[0].effective_lock_time_ms = lock;
+        }
+        3 => observation.funding.pin.model = crate::alephium::FundingModel::ExactHeadSnapshotV1,
+        4 => observation.funding.pin.network_id = 0,
+        5 => observation.funding.pin.group = 1,
+        6 => observation.funding.pin.group_count = 8,
+        7 => observation.funding.pin.head_hash = B256::repeat_byte(249),
+        8 => observation.funding.pin.source_id = B256::repeat_byte(248),
+        9 => observation.policy.minimum_confirmations.chain += 1,
+        10 => {
+            observation.funding.outputs[0].reference.hint ^= 2;
+            observation.provenance[0].reference = observation.funding.outputs[0].reference;
+        }
+        11 => observation.funding.outputs[0].locking_script[1] ^= 1,
+        12 => observation.funding.outputs[0]
+            .tokens
+            .push((B256::repeat_byte(247), U256::from(1))),
+        13 => observation.funding.outputs[0].additional_data.push(1),
+        _ => panic!("Unknown synthetic preparation mutation"),
+    }
+    (key, observation)
+}
+
 pub(crate) fn run_checks() -> usize {
     let script = approved_script();
     let f = fixture::build(None);

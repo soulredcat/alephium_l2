@@ -48,6 +48,22 @@ impl Store {
         }
         validate_transition(stored.as_ref(), next)?;
         recovery::validate_append(previous, next)?;
+        let preparation_inputs = self
+            .funding_preparation_reserved_inputs()
+            .map_err(|_| PublisherError::Storage)?;
+        if next
+            .records
+            .iter()
+            .filter(|row| row.reservations_retained)
+            .any(|row| {
+                row.intent
+                    .inputs
+                    .iter()
+                    .any(|input| preparation_inputs.contains(&input.key))
+            })
+        {
+            return Err(PublisherError::Conflict);
+        }
         let encoded = records::encode(next).map_err(|_| PublisherError::ResourceLimit)?;
         let header = recovery::Header {
             schema: 2,
@@ -83,7 +99,7 @@ impl Store {
         Ok(())
     }
 
-    fn publisher_read(&self) -> Result<Option<PublisherSnapshot>, PublisherError> {
+    pub(super) fn publisher_read(&self) -> Result<Option<PublisherSnapshot>, PublisherError> {
         let result = recovery::load(self);
         if matches!(
             result,

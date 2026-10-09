@@ -18,3 +18,7 @@ hex = "0.4"
 
 [dev-dependencies]
 sha2 = "=0.10.9"
+
+[[test]]
+name = "contract_state_hash_checks"
+path = "../../test/sdk/contract_state_hash_checks.rs"

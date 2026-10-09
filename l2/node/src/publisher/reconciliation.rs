@@ -48,9 +48,22 @@ impl<R: Repository> Publisher<R> {
         id: B256,
         source: &mut impl CanonicalSource,
     ) -> Result<Token, PublisherError> {
+        self.reconcile_observed(expected, id, source)
+            .map(|(token, _)| token)
+    }
+
+    /// Distinguish a newly checked receipt from a retained historical phase.
+    /// `false` means no positive current receipt was accepted by this call;
+    /// callers must not treat an unchanged Confirmed record as fresh acceptance.
+    pub fn reconcile_observed(
+        &mut self,
+        expected: Token,
+        id: B256,
+        source: &mut impl CanonicalSource,
+    ) -> Result<(Token, bool), PublisherError> {
         let refreshed = self.refresh_head(expected, source)?;
         if refreshed != expected {
-            return Ok(refreshed);
+            return Ok((refreshed, false));
         }
         let mut next = self.state(expected, true)?;
         let head = observation::checked_head(source, &self.scope)?;
@@ -76,7 +89,7 @@ impl<R: Repository> Publisher<R> {
         }
         let Some(receipt) = observation::checked_receipt(source, &self.scope, &head, record)?
         else {
-            return Ok(expected);
+            return Ok((expected, false));
         };
         if let Some(parent) = record.intent.parent {
             let parent = row(&next, parent)?;
@@ -108,7 +121,7 @@ impl<R: Repository> Publisher<R> {
             Phase::Included
         };
         if record.phase == phase && record.inclusion.as_ref() == Some(&inclusion) {
-            return Ok(expected);
+            return Ok((expected, true));
         }
         let record = row_mut(&mut next, id)?;
         record.phase = phase;
@@ -120,6 +133,7 @@ impl<R: Repository> Publisher<R> {
             Some(id),
             head.timestamp_ms,
         )
+        .map(|token| (token, true))
     }
 
     /// Explicit reviewed abandonment after its approved review time. Absence is

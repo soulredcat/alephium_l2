@@ -136,7 +136,7 @@ impl CurrentFixedFundingObservation {
     pub fn head_advance(&self) -> u32 {
         self.head_lineage.len().saturating_sub(1) as u32
     }
-    pub(super) fn validate_lock_evidence(&self) -> Result<(), CurrentFundingError> {
+    pub(in crate::alephium) fn validate_lock_evidence(&self) -> Result<(), CurrentFundingError> {
         if self.outputs().len() != self.provenance.len() {
             return Err(CurrentFundingError::CreatorMismatch);
         }
@@ -145,7 +145,7 @@ impl CurrentFixedFundingObservation {
         }
         Ok(())
     }
-    pub(super) fn validate_head_evidence(&self) -> Result<(), CurrentFundingError> {
+    pub(in crate::alephium) fn validate_head_evidence(&self) -> Result<(), CurrentFundingError> {
         super::checks::head(self.funding.pin(), &self.after.header)?;
         if self.current_window {
             super::checks::head_lineage(&self.before.header, &self.after.header, &self.head_lineage)

@@ -3,6 +3,7 @@
 mod availability;
 mod checks;
 mod creator;
+pub(crate) use creator::execution_unsigned;
 mod lock_time;
 mod materialize;
 mod policy;

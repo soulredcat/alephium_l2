@@ -5,7 +5,10 @@
 //! a signature binds unsigned bytes, not local intent/genesis/artifact metadata.
 mod codec;
 mod compact;
+mod contract_state_hash;
+pub use contract_state_hash::{ContractInitialStateHashError, contract_initial_state_hash};
 pub mod current_funding;
+pub mod funding_preparation;
 pub mod read_node;
 mod types;
 mod validation;
@@ -16,7 +19,7 @@ mod qualification_tests;
 pub use types::*;
 pub use validation::{
     alephium_hash, approve_operation, observe_funding, publisher_address_from_public_key,
-    unsigned_input_refs, validate_detached_signature, validate_unsigned,
+    unsigned_input_refs, validate_detached_signature, validate_unsigned, verify_detached_signature,
 };
 
 #[cfg(test)]

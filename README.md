@@ -1,3 +1,5 @@
+**Latest auditable GPU benchmark:** [1,000 / 10,000 / 100,000 TX results and evidence](test/benchmarks/2026-10-09-gpu-tps/README.md). Local service throughput with the original logical-CPU-minus-one profile; no ZK or L1 TPS claim.
+
 # Alephium EVM L2
 
 **P5.2.3 offline bootstrap preparation qualified (8 October 2026).** The Rust planner reuses two pinned caller-template compilations, validates one current funding bundle and prepares four conditional unsigned transactions: three contract deployments and initialization. Independent official native-protocol decoding and persisted-byte reconciliation passed for four distinct confirmed inputs, exact fee/deposit/change accounting and three conditional contract-ID predictions; initialization creates no contract. The bootstrap ceiling is 2 ALPH fee plus 0.3 ALPH deposit; actual gas is unmeasured. This preparation performs no signing, submission or deployment. Public P5 acceptance remains open.
