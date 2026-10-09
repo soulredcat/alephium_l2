@@ -156,5 +156,19 @@
     "gzip_sha256": "3d7d849fc75a845dce1668b8bb986b90f28866b0e5d9f4beda79e9019a22a331",
     "sender_recipient_columns_omitted": true,
     "signatures_and_raw_envelopes_included": false
+  },
+  "block_timing": {
+    "configured_interval_ms": 200,
+    "is_hard_commit_latency_guarantee": false,
+    "actual_commit_intervals_measured": false,
+    "measured_receipt_blocks": [
+      {
+        "height": 22,
+        "transactions": 10000
+      }
+    ],
+    "original_block_plus_one_definition": "receipt_block_height == NodeHandle entry head height + 1",
+    "all_original_block_plus_one": true,
+    "late_receipts": 0
   }
 }
