@@ -1,10 +1,10 @@
 # AGOROVA L2 — status
 
-Build lokal terbaru telah mencapai **~48.000 transaksi terkonfirmasi per detik**
-lewat RPC, di satu PC kelas konsumen, dengan seluruh transaksi berhasil.
+The latest local build has reached **~48,000 confirmed transactions per second**
+through RPC on a single consumer-class PC, with every transaction succeeding.
 
-Dicapai lewat arsitektur node baru yang memanfaatkan memori, GPU dan
-paralelisme secara lebih agresif.
+This comes from a new node architecture that makes more aggressive use of
+memory, the GPU and parallelism.
 
-Angka ini adalah konfirmasi L2 dari benchmark lokal; settlement ke Alephium L1
-diukur terpisah. Target berikutnya: 100.000 tx/s.
+The figure is L2 confirmation from a local benchmark; settlement to Alephium L1
+is measured separately. Next target: 100,000 tx/s.
